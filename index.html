@@ -134,6 +134,8 @@
 
       /* ---------- Standings table ---------- */
       .table-scroll { overflow-x: auto; }
+      /* limit height to roughly 10 rows and add scrollbar */
+      .table-scroll, .log-scroll { max-height: 420px; overflow: auto; }
       table.standings { width: 100%; border-collapse: collapse; font-size: 15px; }
       table.standings th {
         text-align: left;
@@ -293,6 +295,7 @@
       ul.roster .rmeta { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
 
       /* ---------- Match log ---------- */
+      .log-scroll { max-height: 420px; overflow: auto; }
       ul.log { list-style: none; margin: 6px 0 0; padding: 0; }
       ul.log li {
         display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
@@ -400,13 +403,13 @@
       <section class="panel" aria-labelledby="logH">
         <h2 id="logH">Match log</h2>
         <p class="hint">Newest first. Deleting a match recalculates every rating as if it never happened.</p>
-        <div id="logBody"></div>
+        <div id="logBody" class="log-scroll"></div>
       </section>
 
       <div class="grid">
         <section class="panel" aria-labelledby="rosterH">
           <h2 id="rosterH">Roster</h2>
-          <p class="hint">Add everyone who plays. A player can be removed until they've played a match.</p>
+          <p class="hint">Add everyone who plays. Add players using the form — the full roster is hidden here to keep the UI compact.</p>
           <form id="addPlayerForm" class="add-row">
             <input type="text" id="newPlayerName" placeholder="Player name" autocomplete="off" maxlength="40" aria-label="New player name" />
             <button type="submit">Add player</button>
@@ -626,8 +629,8 @@
           var html = '<div class="table-scroll"><table class="standings"><thead><tr>' +
             "<th>#</th><th>Player</th><th class=\"num\">ELO</th><th class=\"num col-hide-sm\">Played</th>" +
             "<th class=\"num\">W</th><th class=\"num\">L</th><th class=\"num col-hide-sm\">Win %</th>" +
-            // Add games won / lost columns after Win %
-            "<th class=\"num col-hide-sm\">Games W</th><th class=\"num col-hide-sm\">Games L</th>" +
+            // GW / GL shortened labels
+            "<th class=\"num col-hide-sm\">GW</th><th class=\"num col-hide-sm\">GL</th>" +
             "<th class=\"col-hide-sm\">Form</th><th>Streak</th></tr></thead><tbody>";
           rows.forEach(function (p, i) {
             var s = c.stats[p.id];
@@ -719,32 +722,8 @@
 
         function renderRoster(c) {
           var body = document.getElementById("rosterBody");
-          if (state.players.length === 0) {
-            body.innerHTML = '<div class="empty" style="margin-top:14px"><b>Roster is empty.</b><br/>Add the first player above to get started.</div>';
-            return;
-          }
-          var sorted = state.players.slice().sort(function (x, y) { return x.name.localeCompare(y.name); });
-          var html = '<ul class="roster">';
-          sorted.forEach(function (p) {
-            var s = c.stats[p.id];
-            var meta = s.played ? s.played + (s.played === 1 ? " match · " : " matches · ") + c.ratings[p.id] + " ELO" : "no matches yet";
-            var btn = s.played === 0
-              ? '<button type="button" class="danger-ghost" data-remove-player="' + p.id + '">Remove</button>'
-              : "";
-            html += "<li><span class=\"rname\">" + esc(p.name) + '</span><span class="rmeta">' + meta + "</span>" + btn + "</li>";
-          });
-          html += "</ul>";
-          body.innerHTML = html;
-          body.querySelectorAll("[data-remove-player]").forEach(function (btn) {
-            btn.addEventListener("click", async function () {
-              var id = btn.getAttribute("data-remove-player");
-              var del = await sb.from("players").delete().eq("id", id);
-              if (del.error) { toast("Couldn't remove the player — " + del.error.message); return; }
-              state.players = state.players.filter(function (p) { return p.id !== id; });
-              render();
-              toast("Player removed.");
-            });
-          });
+          // Keep roster compact: don't show the full player list here. Provide a small note instead.
+          body.innerHTML = '<div class="empty" style="margin-top:14px"><b>Roster hidden.</b><br/>Add players using the form above.</div>';
         }
 
         var selectIds = ["selA1", "selA2", "selB1", "selB2"];
