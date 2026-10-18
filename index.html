@@ -162,6 +162,10 @@
       }
       .dot.w { background: var(--win); }
       .dot.l { background: var(--loss); opacity: .75; }
+      .dot.d { background: var(--ink-soft); opacity: .8; }
+      .tag-draw { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+        text-transform: uppercase; color: var(--ink-soft); border: 1px solid var(--line);
+        border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: 1px; }
       .streak { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; }
       .streak.w { color: var(--win); }
       .streak.l { color: var(--loss); }
@@ -361,7 +365,7 @@
 
         <section class="panel" aria-labelledby="recordH">
           <h2 id="recordH">Record a match</h2>
-          <p class="hint">Pick the two pairs and enter the set score — matches are a single set, and the winner is worked out automatically.</p>
+          <p class="hint">Pick the two pairs and enter the set score — matches are a single set, the winner is worked out automatically, and a tied score (like 5–5) counts as a draw.</p>
           <form id="matchForm" novalidate>
             <label class="field-label" for="matchDate">Date</label>
             <input type="date" id="matchDate" />
@@ -421,7 +425,7 @@
         </section>
       </div>
 
-      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches.</footer>
+      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied set counts as a draw (result = 0.5).</footer>
     </div>
 
     <div class="toast" id="toast" role="status"></div>
@@ -491,7 +495,7 @@
           });
           if (aSets !== bSets) return aSets > bSets ? "A" : "B";
           if (aGames !== bGames) return aGames > bGames ? "A" : "B";
-          return null;
+          return "Draw";
         }
 
         // Recompute every rating and stat from scratch, oldest match first,
@@ -511,7 +515,7 @@
             var rb = (ratings[m.b1] + ratings[m.b2]) / 2;
             var ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
             var winner = setsWinner(m);
-            var sa = winner === "A" ? 1 : 0;
+            var sa = winner === "A" ? 1 : winner === "B" ? 0 : 0.5;
             var kEff = m.official ? K * 2 : K;
             var dA = Math.round(kEff * (sa - ea));
             var dB = -dA;
@@ -520,6 +524,9 @@
             ratings[m.a1] += dA; ratings[m.a2] += dA;
             ratings[m.b1] += dB; ratings[m.b2] += dB;
             [m.a1, m.a2, m.b1, m.b2].forEach(function (id) { stats[id].played++; });
+            if (winner === "Draw") {
+              [m.a1, m.a2, m.b1, m.b2].forEach(function (id) { stats[id].form.push("D"); });
+            } else {
             var winners = winner === "A" ? [m.a1, m.a2] : [m.b1, m.b2];
             var losers = winner === "A" ? [m.b1, m.b2] : [m.a1, m.a2];
             winners.forEach(function (id) {
@@ -532,6 +539,7 @@
               s.losses++; s.form.push("L");
               if (s.streakType === "L") s.streakCount++; else { s.streakType = "L"; s.streakCount = 1; }
             });
+            }
           });
           return { ratings: ratings, stats: stats, ordered: ordered };
         }
@@ -601,7 +609,9 @@
             var s = c.stats[p.id];
             var winPct = s.played ? Math.round((s.wins / s.played) * 100) + "%" : "—";
             var form = s.form.slice(-5).map(function (f) {
-              return '<span class="dot ' + (f === "W" ? "w" : "l") + '" title="' + (f === "W" ? "Win" : "Loss") + '"></span>';
+              var cls = f === "W" ? "w" : f === "D" ? "d" : "l";
+              var label = f === "W" ? "Win" : f === "D" ? "Draw" : "Loss";
+              return '<span class="dot ' + cls + '" title="' + label + '"></span>';
             }).join("");
             if (!form) form = '<span class="muted">—</span>';
             var streak = s.played && s.streakType
@@ -634,17 +644,28 @@
             var winner = setsWinner(m);
             var aNames = esc(playerById(m.a1).name) + " &amp; " + esc(playerById(m.a2).name);
             var bNames = esc(playerById(m.b1).name) + " &amp; " + esc(playerById(m.b2).name);
-            var first = winner === "A" ? aNames : bNames;
-            var second = winner === "A" ? bNames : aNames;
-            var dWin = winner === "A" ? m.deltaA : m.deltaB;
-            var dLose = winner === "A" ? m.deltaB : m.deltaA;
+            var teamsHtml, deltaHtml;
+            function fmtDelta(d) { return (d >= 0 ? "+" + d : "" + d); }
+            if (winner === "Draw") {
+              teamsHtml = '<span class="teams">' + aNames + '<span class="def">drew</span>' + bNames +
+                '<span class="tag-draw">Draw</span></span>';
+              deltaHtml = '<span class="delta ' + (m.deltaA >= 0 ? "up" : "down") + '">' + fmtDelta(m.deltaA) + "</span>" +
+                '<span class="delta ' + (m.deltaB >= 0 ? "up" : "down") + '">' + fmtDelta(m.deltaB) + "</span>";
+            } else {
+              var first = winner === "A" ? aNames : bNames;
+              var second = winner === "A" ? bNames : aNames;
+              var dWin = winner === "A" ? m.deltaA : m.deltaB;
+              var dLose = winner === "A" ? m.deltaB : m.deltaA;
+              teamsHtml = '<span class="teams">' + first + '<span class="def">def.</span>' + second + "</span>";
+              deltaHtml = '<span class="delta up">' + fmtDelta(dWin) + "</span>" +
+                '<span class="delta down">' + fmtDelta(dLose) + "</span>";
+            }
             html += "<li>" +
               '<span class="log-date">' + fmtDate(m.date) + "</span>" +
-              '<span class="log-main"><span class="teams">' + first + '<span class="def">def.</span>' + second + "</span></span>" +
+              '<span class="log-main">' + teamsHtml + "</span>" +
               '<span class="log-score">' + scoreString(m) + "</span>" +
               (m.official ? '<span class="tag-official">Official · 2×</span>' : "") +
-              '<span class="delta up">' + (dWin >= 0 ? "+" + dWin : dWin) + '</span>' +
-              '<span class="delta down">' + (dLose >= 0 ? "+" + dLose : dLose) + '</span>' +
+              deltaHtml +
               '<span class="log-actions"><button type="button" class="danger-ghost" data-delete-match="' + m.id + '">Delete</button></span>' +
               "</li>";
           });
@@ -760,8 +781,8 @@
           if (ga === "" || gb === "") { showError("Enter the set score for both teams."); return; }
           var na = parseInt(ga, 10), nb = parseInt(gb, 10);
           if (isNaN(na) || isNaN(nb) || na < 0 || nb < 0 || na > 30 || nb > 30) { showError("Set games must be between 0 and 30."); return; }
-          if (na === nb) { showError("The set can't be tied — someone has to win it."); return; }
           var sets = [[na, nb]];
+          var isDraw = na === nb;
 
           var official = document.getElementById("officialCheck").checked;
           var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
@@ -778,10 +799,14 @@
           document.getElementById("officialCheck").checked = false;
           render();
           var w = setsWinner(match);
-          var names = w === "A"
-            ? playerById(a1).name + " & " + playerById(a2).name
-            : playerById(b1).name + " & " + playerById(b2).name;
-          toast("Match saved — " + names + " take it " + scoreString(match) + ".");
+          if (w === "Draw") {
+            toast("Draw saved — " + scoreString(match) + ".");
+          } else {
+            var names = w === "A"
+              ? playerById(a1).name + " & " + playerById(a2).name
+              : playerById(b1).name + " & " + playerById(b2).name;
+            toast("Match saved — " + names + " take it " + scoreString(match) + ".");
+          }
         });
 
         /* ---------------- Roster form ---------------- */
@@ -864,7 +889,7 @@
                 var okSets = m.sets.every(function (s) {
                   return Array.isArray(s) && s.length === 2 &&
                     Number.isInteger(s[0]) && Number.isInteger(s[1]) &&
-                    s[0] >= 0 && s[1] >= 0 && s[0] <= 30 && s[1] <= 30 && s[0] !== s[1];
+                    s[0] >= 0 && s[1] >= 0 && s[0] <= 30 && s[1] <= 30;
                 });
                 if (!okSets) return;
                 var clean = { id: uid("m"), seq: matches.length + 1, date: m.date, a1: idMap[m.a1], a2: idMap[m.a2], b1: idMap[m.b1], b2: idMap[m.b2], sets: m.sets, official: m.official === true };
