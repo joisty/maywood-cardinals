@@ -425,7 +425,7 @@
         </section>
       </div>
 
-      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied set counts as a draw (result = 0.5).</footer>
+      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied s[...]</footer>
     </div>
 
     <div class="toast" id="toast" role="status"></div>
@@ -555,6 +555,15 @@
           return m.sets.map(function (s) { return s[0] + "–" + s[1]; }).join(", ");
         }
 
+        function todayIso() {
+          var today = new Date();
+          return today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+        }
+
+        function isLiveDate(iso) {
+          return iso === todayIso();
+        }
+
         var toastTimer = null;
         function toast(msg) {
           var el = document.getElementById("toast");
@@ -660,13 +669,19 @@
               deltaHtml = '<span class="delta up">' + fmtDelta(dWin) + "</span>" +
                 '<span class="delta down">' + fmtDelta(dLose) + "</span>";
             }
+
+            // Only show the Delete button for matches that happened today (live day).
+            var deleteHtml = isLiveDate(m.date)
+              ? '<span class="log-actions"><button type="button" class="danger-ghost" data-delete-match="' + m.id + '">Delete</button></span>'
+              : '';
+
             html += "<li>" +
               '<span class="log-date">' + fmtDate(m.date) + "</span>" +
               '<span class="log-main">' + teamsHtml + "</span>" +
               '<span class="log-score">' + scoreString(m) + "</span>" +
               (m.official ? '<span class="tag-official">Official · 2×</span>' : "") +
               deltaHtml +
-              '<span class="log-actions"><button type="button" class="danger-ghost" data-delete-match="' + m.id + '">Delete</button></span>' +
+              deleteHtml +
               "</li>";
           });
           html += "</ul>";
@@ -774,7 +789,8 @@
           if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
 
           var date = document.getElementById("matchDate").value;
-          if (!date) { showError("Pick the match date."); return; }
+          // Enforce live-day-only entry: date must be today's date.
+          if (date !== todayIso()) { showError("Matches can only be recorded for today's date. Contact the manager to record or edit older matches."); return; }
 
           var ga = document.getElementById("set1A").value;
           var gb = document.getElementById("set1B").value;
@@ -785,7 +801,7 @@
           var isDraw = na === nb;
 
           var official = document.getElementById("officialCheck").checked;
-          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
+          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: !!official };
 
           var ins = await sb.from("matches").insert({
             id: match.id, seq: match.seq, date: match.date,
@@ -913,9 +929,13 @@
         /* ---------------- Init ---------------- */
 
         (async function init() {
-          var today = new Date();
-          var iso = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
-          document.getElementById("matchDate").value = iso;
+          var matchDateInput = document.getElementById("matchDate");
+          matchDateInput.value = todayIso();
+          // Make the match date fixed to today's date — only manager may change older records.
+          matchDateInput.readOnly = true;
+          matchDateInput.disabled = true;
+          matchDateInput.title = "Date fixed to today — contact the manager to record or change older matches.";
+
           buildSetRows();
           if (SUPABASE_URL.indexOf("PASTE_") === 0) {
             render();
