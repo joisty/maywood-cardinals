@@ -396,6 +396,7 @@
             </label>
             <div class="form-error" id="formError" role="alert"></div>
             <button type="submit" class="primary" id="saveMatchBtn">Save match &amp; update ELO</button>
+            <button type="button" class="ghost" id="predictBtn" style="margin-top:8px">Predict match</button>
           </form>
         </section>
       </div>
@@ -774,6 +775,40 @@
         function clearError() {
           document.getElementById("formError").classList.remove("show");
         }
+
+        /* ---------------- Predict match (just for fun) ---------------- */
+
+        document.getElementById("predictBtn").addEventListener("click", function () {
+          clearError();
+          var a1 = document.getElementById("selA1").value;
+          var a2 = document.getElementById("selA2").value;
+          var b1 = document.getElementById("selB1").value;
+          var b2 = document.getElementById("selB2").value;
+          if (!a1 || !a2 || !b1 || !b2) { showError("Pick all four players first."); return; }
+          var picked = [a1, a2, b1, b2];
+          if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
+          var c = compute();
+          var ra = (c.ratings[a1] + c.ratings[a2]) / 2;
+          var rb = (c.ratings[b1] + c.ratings[b2]) / 2;
+          var diff = ra - rb;
+          var ad = Math.abs(diff);
+          var ga, gb;
+          if (ad < 40) {
+            ga = 5; gb = 5; // too close to call — predicted draw
+          } else {
+            // ~90 ELO of team-average gap ≈ one game of margin
+            var loserGames = Math.max(0, Math.min(4, Math.round(5 - ad / 90)));
+            if (diff > 0) { ga = 6; gb = loserGames; } else { ga = loserGames; gb = 6; }
+          }
+          document.getElementById("set1A").value = ga;
+          document.getElementById("set1B").value = gb;
+          var aNames = playerById(a1).name + " & " + playerById(a2).name;
+          var bNames = playerById(b1).name + " & " + playerById(b2).name;
+          var call = ga === gb
+            ? "a " + ga + "–" + gb + " draw"
+            : (ga > gb ? aNames : bNames) + " " + ga + "–" + gb;
+          toast("Prediction: " + call + " (avg ELO " + Math.round(ra) + " vs " + Math.round(rb) + ").");
+        });
 
         document.getElementById("matchForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
