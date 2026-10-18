@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Tennis Club ELO Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f4f2ec;
+        --surface: #fffdf8;
+        --surface-2: #eceade;
+        --ink: #1c2a1e;
+        --ink-soft: #55614f;
+        --line: #d8d4c4;
+        --court: #1e4634;
+        --court-deep: #143325;
+        --court-ink: #eef3e4;
+        --ball: #b7d43c;
+        --ball-ink: #24300a;
+        --clay: #c25e3a;
+        --win: #2e7d46;
+        --loss: #b0483a;
+        --focus: #7ba23f;
+        --shadow: 0 1px 2px rgba(28, 42, 30, .08), 0 8px 24px rgba(28, 42, 30, .06);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #10160f;
+          --surface: #1a241a;
+          --surface-2: #232e22;
+          --ink: #e9eee0;
+          --ink-soft: #a3b096;
+          --line: #37452f;
+          --court: #1e4634;
+          --court-deep: #0e2417;
+          --court-ink: #eef3e4;
+          --ball: #c3e052;
+          --ball-ink: #1d2905;
+          --clay: #d97a52;
+          --win: #63b67e;
+          --loss: #e08a7c;
+          --focus: #c3e052;
+          --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+        }
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.45;
+      }
+      .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 56px; }
+
+      /* ---------- Header / scoreboard strip ---------- */
+      header.masthead {
+        background: linear-gradient(160deg, var(--court) 0%, var(--court-deep) 100%);
+        color: var(--court-ink);
+        border-radius: 18px;
+        padding: 26px 26px 22px;
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+      header.masthead::after {
+        content: "";
+        position: absolute;
+        right: -46px; top: -46px;
+        width: 190px; height: 190px;
+        border-radius: 50%;
+        border: 26px solid rgba(238, 243, 228, .14);
+        pointer-events: none;
+      }
+      header.masthead h1 {
+        margin: 0;
+        font-size: clamp(26px, 4.6vw, 40px);
+        font-weight: 900;
+        letter-spacing: -.01em;
+        line-height: 1.05;
+      }
+      header.masthead p.sub {
+        margin: 8px 0 0;
+        color: rgba(238, 243, 228, .82);
+        font-size: 15px;
+        max-width: 56ch;
+      }
+      .stat-strip {
+        display: flex; flex-wrap: wrap; gap: 10px 34px;
+        margin-top: 20px;
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+      }
+      .stat-strip .stat b {
+        display: block;
+        font-size: 26px; font-weight: 700; line-height: 1;
+        color: var(--ball);
+      }
+      .stat-strip .stat span {
+        font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+        color: rgba(238, 243, 228, .75);
+      }
+
+      /* ---------- Layout ---------- */
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+        gap: 18px;
+        margin-top: 18px;
+        align-items: start;
+      }
+      @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+      section.panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        padding: 20px;
+        margin-top: 18px;
+      }
+      .grid section.panel { margin-top: 0; }
+      section.panel h2 {
+        margin: 0 0 4px;
+        font-size: 19px; font-weight: 800; letter-spacing: -.01em;
+      }
+      section.panel p.hint { margin: 0 0 14px; color: var(--ink-soft); font-size: 13.5px; }
+
+      /* ---------- Standings table ---------- */
+      .table-scroll { overflow-x: auto; }
+      table.standings { width: 100%; border-collapse: collapse; font-size: 15px; }
+      table.standings th {
+        text-align: left;
+        font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+        color: var(--ink-soft);
+        padding: 8px 8px;
+        border-bottom: 2px solid var(--line);
+        white-space: nowrap;
+      }
+      table.standings td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+      table.standings tr:last-child td { border-bottom: none; }
+      td.rank { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); width: 30px; }
+      tr.top td.rank { color: var(--clay); font-weight: 700; }
+      td.player-name { font-weight: 700; white-space: normal; }
+      td.elo { font-family: "IBM Plex Mono", monospace; font-weight: 700; font-size: 17px; }
+      td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .form-dots { display: inline-flex; gap: 4px; }
+      .dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        display: inline-block;
+      }
+      .dot.w { background: var(--win); }
+      .dot.l { background: var(--loss); opacity: .75; }
+      .streak { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; }
+      .streak.w { color: var(--win); }
+      .streak.l { color: var(--loss); }
+      .muted { color: var(--ink-soft); }
+      @media (max-width: 560px) {
+        .col-hide-sm { display: none; }
+        td.elo { font-size: 15px; }
+        section.panel { padding: 16px 14px; }
+      }
+
+      /* ---------- Forms ---------- */
+      label.field-label {
+        display: block;
+        font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+        color: var(--ink-soft);
+        margin: 14px 0 6px;
+      }
+      label.field-label:first-of-type { margin-top: 0; }
+      select, input[type="text"], input[type="date"], input[type="number"] {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        font: inherit; font-size: 15px;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1.5px solid var(--line);
+        border-radius: 9px;
+        padding: 9px 10px;
+      }
+      select:focus, input:focus { outline: 2px solid var(--focus); outline-offset: 1px; border-color: var(--focus); }
+      .team-box {
+        border: 1.5px solid var(--line);
+        border-radius: 12px;
+        padding: 12px;
+        background: var(--surface-2);
+      }
+      .team-box legend, .team-tag {
+        font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+      }
+      .team-box.a .team-tag { color: var(--court); }
+      .team-box.b .team-tag { color: var(--clay); }
+      @media (prefers-color-scheme: dark) { .team-box.a .team-tag { color: var(--ball); } }
+      .team-box select + select { margin-top: 8px; }
+      .vs-row {
+        display: flex; align-items: center; gap: 10px;
+        margin: 12px 0 2px;
+        color: var(--ink-soft);
+        font-weight: 800; font-size: 12px; letter-spacing: .14em;
+      }
+      .vs-row::before, .vs-row::after { content: ""; flex: 1; border-top: 1.5px dashed var(--line); }
+      .check-row {
+        display: flex; align-items: flex-start; gap: 10px;
+        margin-top: 14px;
+        font-size: 14.5px; font-weight: 600;
+        cursor: pointer;
+      }
+      .check-row input[type="checkbox"] {
+        width: 19px; height: 19px; flex: 0 0 auto;
+        margin: 1px 0 0;
+        accent-color: var(--court);
+        cursor: pointer;
+      }
+      .check-row .check-note { color: var(--ink-soft); font-weight: 500; }
+      .tag-official {
+        font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+        color: var(--clay);
+        border: 1px solid color-mix(in srgb, var(--clay) 55%, var(--line));
+        border-radius: 999px; padding: 2px 8px;
+        white-space: nowrap;
+      }
+      .sets-grid { display: grid; gap: 8px; }
+      .set-row { display: grid; grid-template-columns: 58px 1fr 18px 1fr; align-items: center; gap: 8px; }
+      .set-row .set-name { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+      .set-row .dash { text-align: center; color: var(--ink-soft); font-weight: 700; }
+      .set-row input { text-align: center; font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+      .form-error {
+        display: none;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--loss) 12%, var(--surface));
+        color: var(--loss);
+        font-size: 14px; font-weight: 600;
+      }
+      .form-error.show { display: block; }
+      button {
+        font: inherit; cursor: pointer;
+        border-radius: 10px;
+        border: 1.5px solid transparent;
+        font-weight: 700;
+      }
+      button.primary {
+        width: 100%;
+        margin-top: 16px;
+        padding: 12px 16px;
+        background: var(--ball); color: var(--ball-ink);
+        font-size: 16px;
+      }
+      button.primary:hover { filter: brightness(1.05); }
+      button.primary:disabled { opacity: .45; cursor: not-allowed; }
+      button.ghost {
+        background: transparent; color: var(--ink);
+        border-color: var(--line);
+        padding: 8px 13px; font-size: 14px;
+      }
+      button.ghost:hover { border-color: var(--ink-soft); }
+      button.danger-ghost {
+        background: transparent; color: var(--loss);
+        border-color: color-mix(in srgb, var(--loss) 45%, var(--line));
+        padding: 5px 10px; font-size: 13px;
+      }
+
+      /* ---------- Roster ---------- */
+      .add-row { display: flex; gap: 8px; }
+      .add-row input { flex: 1; }
+      .add-row button { flex: 0 0 auto; background: var(--court); color: var(--court-ink); padding: 9px 16px; }
+      ul.roster { list-style: none; margin: 14px 0 0; padding: 0; }
+      ul.roster li {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 2px;
+        border-bottom: 1px solid var(--line);
+      }
+      ul.roster li:last-child { border-bottom: none; }
+      ul.roster .rname { font-weight: 700; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      ul.roster .rmeta { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+
+      /* ---------- Match log ---------- */
+      ul.log { list-style: none; margin: 6px 0 0; padding: 0; }
+      ul.log li {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+        padding: 13px 2px;
+        border-bottom: 1px solid var(--line);
+      }
+      ul.log li:last-child { border-bottom: none; }
+      .log-date { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+      .log-main { flex: 1 1 260px; min-width: 0; }
+      .log-main .teams { font-weight: 700; overflow-wrap: anywhere; }
+      .log-main .teams .def { color: var(--ink-soft); font-weight: 600; font-size: 13px; margin: 0 2px; }
+      .log-score { font-family: "IBM Plex Mono", monospace; font-weight: 600; white-space: nowrap; }
+      .delta { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 700; white-space: nowrap; }
+      .delta.up { color: var(--win); }
+      .delta.down { color: var(--loss); }
+      .log-actions { margin-left: auto; }
+
+      .empty {
+        padding: 26px 14px;
+        text-align: center;
+        color: var(--ink-soft);
+        border: 1.5px dashed var(--line);
+        border-radius: 12px;
+        font-size: 14.5px;
+      }
+      .empty b { color: var(--ink); }
+
+      /* ---------- Data tools ---------- */
+      .tools-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      .tools-row p { flex: 1 1 260px; margin: 0; color: var(--ink-soft); font-size: 13.5px; }
+      input[type="file"] { display: none; }
+      .toast {
+        position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(16px);
+        background: var(--court-deep); color: var(--court-ink);
+        padding: 11px 18px; border-radius: 999px;
+        font-size: 14.5px; font-weight: 600;
+        box-shadow: 0 10px 30px rgba(0,0,0,.3);
+        opacity: 0; pointer-events: none;
+        transition: opacity .25s ease, transform .25s ease;
+        max-width: calc(100vw - 32px); text-align: center;
+        z-index: 20;
+      }
+      .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+      @media (prefers-reduced-motion: reduce) {
+        .toast { transition: none; }
+      }
+      footer.foot { margin-top: 26px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <h1>Tennis Club ELO Tracker</h1>
+        <p class="sub">Doubles ladder for the club — record a result and every player's rating updates on the spot.</p>
+        <div class="stat-strip">
+          <div class="stat"><b id="statPlayers">0</b><span>Players</span></div>
+          <div class="stat"><b id="statMatches">0</b><span>Matches</span></div>
+          <div class="stat"><b id="statOfficial">0</b><span>Official matches</span></div>
+          <div class="stat"><b id="statTop">—</b><span>Top rated</span></div>
+        </div>
+      </header>
+
+      <div class="grid">
+        <section class="panel" aria-labelledby="standingsH">
+          <h2 id="standingsH">Standings</h2>
+          <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
+          <div id="standingsBody"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="recordH">
+          <h2 id="recordH">Record a match</h2>
+          <p class="hint">Pick the two pairs and enter the set score — matches are a single set, and the winner is worked out automatically.</p>
+          <form id="matchForm" novalidate>
+            <label class="field-label" for="matchDate">Date</label>
+            <input type="date" id="matchDate" />
+            <div style="height:14px"></div>
+            <div class="team-box a">
+              <span class="team-tag">Team A</span>
+              <label class="field-label" for="selA1">Player 1</label>
+              <select id="selA1"></select>
+              <label class="field-label" for="selA2">Player 2</label>
+              <select id="selA2"></select>
+            </div>
+            <div class="vs-row">VS</div>
+            <div class="team-box b">
+              <span class="team-tag">Team B</span>
+              <label class="field-label" for="selB1">Player 1</label>
+              <select id="selB1"></select>
+              <label class="field-label" for="selB2">Player 2</label>
+              <select id="selB2"></select>
+            </div>
+            <label class="field-label">Set score (games)</label>
+            <div class="sets-grid" id="setsGrid"></div>
+            <label class="check-row" for="officialCheck">
+              <input type="checkbox" id="officialCheck" />
+              <span>Official competition match <span class="check-note">— counts double toward ELO</span></span>
+            </label>
+            <div class="form-error" id="formError" role="alert"></div>
+            <button type="submit" class="primary" id="saveMatchBtn">Save match &amp; update ELO</button>
+          </form>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="logH">
+        <h2 id="logH">Match log</h2>
+        <p class="hint">Newest first. Deleting a match recalculates every rating as if it never happened.</p>
+        <div id="logBody"></div>
+      </section>
+
+      <div class="grid">
+        <section class="panel" aria-labelledby="rosterH">
+          <h2 id="rosterH">Roster</h2>
+          <p class="hint">Add everyone who plays. A player can be removed until they've played a match.</p>
+          <form id="addPlayerForm" class="add-row">
+            <input type="text" id="newPlayerName" placeholder="Player name" autocomplete="off" maxlength="40" aria-label="New player name" />
+            <button type="submit">Add player</button>
+          </form>
+          <div id="rosterBody"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="toolsH">
+          <h2 id="toolsH">Club record file</h2>
+          <div class="tools-row">
+            <p>Download the roster and match log as one file to keep a backup or hand the record to another member — they can import it here to pick up the same standings.</p>
+            <button type="button" class="ghost" id="exportBtn">Export JSON</button>
+            <button type="button" class="ghost" id="importBtn">Import JSON</button>
+            <input type="file" id="importFile" accept="application/json,.json" />
+          </div>
+        </section>
+      </div>
+
+      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches.</footer>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var START_RATING = 1500;
+        var K = 32;
+
+        var state = { players: [], matches: [] };
+        var seq = 0;
+
+        function uid(prefix) {
+          seq += 1;
+          return prefix + Date.now().toString(36) + seq.toString(36);
+        }
+
+        function esc(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+          });
+        }
+
+        function playerById(id) {
+          for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].id === id) return state.players[i];
+          }
+          return null;
+        }
+
+        function setsWinner(m) {
+          var aSets = 0, bSets = 0, aGames = 0, bGames = 0;
+          m.sets.forEach(function (s) {
+            aGames += s[0]; bGames += s[1];
+            if (s[0] > s[1]) aSets++; else if (s[1] > s[0]) bSets++;
+          });
+          if (aSets !== bSets) return aSets > bSets ? "A" : "B";
+          if (aGames !== bGames) return aGames > bGames ? "A" : "B";
+          return null;
+        }
+
+        // Recompute every rating and stat from scratch, oldest match first,
+        // so edits and deletions always leave a consistent ladder.
+        function compute() {
+          var ratings = {}, stats = {};
+          state.players.forEach(function (p) {
+            ratings[p.id] = START_RATING;
+            stats[p.id] = { played: 0, wins: 0, losses: 0, form: [], streakType: null, streakCount: 0 };
+          });
+          var ordered = state.matches.slice().sort(function (x, y) {
+            if (x.date !== y.date) return x.date < y.date ? -1 : 1;
+            return x.seq - y.seq;
+          });
+          ordered.forEach(function (m) {
+            var ra = (ratings[m.a1] + ratings[m.a2]) / 2;
+            var rb = (ratings[m.b1] + ratings[m.b2]) / 2;
+            var ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
+            var winner = setsWinner(m);
+            var sa = winner === "A" ? 1 : 0;
+            var kEff = m.official ? K * 2 : K;
+            var dA = Math.round(kEff * (sa - ea));
+            var dB = -dA;
+            m.deltaA = dA;
+            m.deltaB = dB;
+            ratings[m.a1] += dA; ratings[m.a2] += dA;
+            ratings[m.b1] += dB; ratings[m.b2] += dB;
+            [m.a1, m.a2, m.b1, m.b2].forEach(function (id) { stats[id].played++; });
+            var winners = winner === "A" ? [m.a1, m.a2] : [m.b1, m.b2];
+            var losers = winner === "A" ? [m.b1, m.b2] : [m.a1, m.a2];
+            winners.forEach(function (id) {
+              var s = stats[id];
+              s.wins++; s.form.push("W");
+              if (s.streakType === "W") s.streakCount++; else { s.streakType = "W"; s.streakCount = 1; }
+            });
+            losers.forEach(function (id) {
+              var s = stats[id];
+              s.losses++; s.form.push("L");
+              if (s.streakType === "L") s.streakCount++; else { s.streakType = "L"; s.streakCount = 1; }
+            });
+          });
+          return { ratings: ratings, stats: stats, ordered: ordered };
+        }
+
+        function fmtDate(iso) {
+          var parts = iso.split("-");
+          if (parts.length !== 3) return iso;
+          var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+          return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+        }
+
+        function scoreString(m) {
+          return m.sets.map(function (s) { return s[0] + "–" + s[1]; }).join(", ");
+        }
+
+        var toastTimer = null;
+        function toast(msg) {
+          var el = document.getElementById("toast");
+          el.textContent = msg;
+          el.classList.add("show");
+          if (toastTimer) clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2600);
+        }
+
+        /* ---------------- Rendering ---------------- */
+
+        function render() {
+          var c = compute();
+          renderHeader(c);
+          renderStandings(c);
+          renderLog(c);
+          renderRoster(c);
+          renderSelects();
+        }
+
+        function renderHeader(c) {
+          document.getElementById("statPlayers").textContent = state.players.length;
+          document.getElementById("statMatches").textContent = state.matches.length;
+          var official = 0;
+          state.matches.forEach(function (m) { if (m.official) official++; });
+          document.getElementById("statOfficial").textContent = official;
+          var top = "—";
+          var best = -Infinity;
+          state.players.forEach(function (p) {
+            if (c.stats[p.id].played > 0 && c.ratings[p.id] > best) { best = c.ratings[p.id]; top = p.name; }
+          });
+          document.getElementById("statTop").textContent = top;
+          document.getElementById("statTop").style.fontSize = top === "—" ? "" : "17px";
+        }
+
+        function renderStandings(c) {
+          var body = document.getElementById("standingsBody");
+          if (state.players.length === 0) {
+            body.innerHTML = '<div class="empty"><b>No players yet.</b><br/>Add your club members in the Roster below, then record your first match.</div>';
+            return;
+          }
+          var rows = state.players.slice().sort(function (x, y) {
+            if (c.ratings[y.id] !== c.ratings[x.id]) return c.ratings[y.id] - c.ratings[x.id];
+            if (c.stats[y.id].wins !== c.stats[x.id].wins) return c.stats[y.id].wins - c.stats[x.id].wins;
+            return x.name.localeCompare(y.name);
+          });
+          var html = '<div class="table-scroll"><table class="standings"><thead><tr>' +
+            "<th>#</th><th>Player</th><th class=\"num\">ELO</th><th class=\"num col-hide-sm\">Played</th>" +
+            "<th class=\"num\">W</th><th class=\"num\">L</th><th class=\"num col-hide-sm\">Win %</th>" +
+            "<th class=\"col-hide-sm\">Form</th><th>Streak</th></tr></thead><tbody>";
+          rows.forEach(function (p, i) {
+            var s = c.stats[p.id];
+            var winPct = s.played ? Math.round((s.wins / s.played) * 100) + "%" : "—";
+            var form = s.form.slice(-5).map(function (f) {
+              return '<span class="dot ' + (f === "W" ? "w" : "l") + '" title="' + (f === "W" ? "Win" : "Loss") + '"></span>';
+            }).join("");
+            if (!form) form = '<span class="muted">—</span>';
+            var streak = s.played && s.streakType
+              ? '<span class="streak ' + (s.streakType === "W" ? "w" : "l") + '">' + s.streakType + s.streakCount + "</span>"
+              : '<span class="muted">—</span>';
+            html += '<tr' + (i === 0 && s.played > 0 ? ' class="top"' : "") + ">" +
+              "<td class=\"rank\">" + (i + 1) + "</td>" +
+              '<td class="player-name">' + esc(p.name) + "</td>" +
+              '<td class="elo num">' + c.ratings[p.id] + "</td>" +
+              '<td class="num col-hide-sm">' + s.played + "</td>" +
+              '<td class="num">' + s.wins + "</td>" +
+              '<td class="num">' + s.losses + "</td>" +
+              '<td class="num col-hide-sm">' + winPct + "</td>" +
+              '<td class="col-hide-sm"><span class="form-dots">' + form + "</span></td>" +
+              "<td>" + streak + "</td></tr>";
+          });
+          html += "</tbody></table></div>";
+          body.innerHTML = html;
+        }
+
+        function renderLog(c) {
+          var body = document.getElementById("logBody");
+          if (state.matches.length === 0) {
+            body.innerHTML = '<div class="empty"><b>No matches recorded yet.</b><br/>Results you save will show up here, newest first.</div>';
+            return;
+          }
+          var newestFirst = c.ordered.slice().reverse();
+          var html = '<ul class="log">';
+          newestFirst.forEach(function (m) {
+            var winner = setsWinner(m);
+            var aNames = esc(playerById(m.a1).name) + " &amp; " + esc(playerById(m.a2).name);
+            var bNames = esc(playerById(m.b1).name) + " &amp; " + esc(playerById(m.b2).name);
+            var first = winner === "A" ? aNames : bNames;
+            var second = winner === "A" ? bNames : aNames;
+            var dWin = winner === "A" ? m.deltaA : m.deltaB;
+            var dLose = winner === "A" ? m.deltaB : m.deltaA;
+            html += "<li>" +
+              '<span class="log-date">' + fmtDate(m.date) + "</span>" +
+              '<span class="log-main"><span class="teams">' + first + '<span class="def">def.</span>' + second + "</span></span>" +
+              '<span class="log-score">' + scoreString(m) + "</span>" +
+              (m.official ? '<span class="tag-official">Official · 2×</span>' : "") +
+              '<span class="delta up">' + (dWin >= 0 ? "+" + dWin : dWin) + '</span>' +
+              '<span class="delta down">' + (dLose >= 0 ? "+" + dLose : dLose) + '</span>' +
+              '<span class="log-actions"><button type="button" class="danger-ghost" data-delete-match="' + m.id + '">Delete</button></span>' +
+              "</li>";
+          });
+          html += "</ul>";
+          body.innerHTML = html;
+          body.querySelectorAll("[data-delete-match]").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              var id = btn.getAttribute("data-delete-match");
+              state.matches = state.matches.filter(function (m) { return m.id !== id; });
+              render();
+              toast("Match deleted — ratings recalculated.");
+            });
+          });
+        }
+
+        function renderRoster(c) {
+          var body = document.getElementById("rosterBody");
+          if (state.players.length === 0) {
+            body.innerHTML = '<div class="empty" style="margin-top:14px"><b>Roster is empty.</b><br/>Add the first player above to get started.</div>';
+            return;
+          }
+          var sorted = state.players.slice().sort(function (x, y) { return x.name.localeCompare(y.name); });
+          var html = '<ul class="roster">';
+          sorted.forEach(function (p) {
+            var s = c.stats[p.id];
+            var meta = s.played ? s.played + (s.played === 1 ? " match · " : " matches · ") + c.ratings[p.id] + " ELO" : "no matches yet";
+            var btn = s.played === 0
+              ? '<button type="button" class="danger-ghost" data-remove-player="' + p.id + '">Remove</button>'
+              : "";
+            html += "<li><span class=\"rname\">" + esc(p.name) + '</span><span class="rmeta">' + meta + "</span>" + btn + "</li>";
+          });
+          html += "</ul>";
+          body.innerHTML = html;
+          body.querySelectorAll("[data-remove-player]").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              var id = btn.getAttribute("data-remove-player");
+              state.players = state.players.filter(function (p) { return p.id !== id; });
+              render();
+              toast("Player removed.");
+            });
+          });
+        }
+
+        var selectIds = ["selA1", "selA2", "selB1", "selB2"];
+        function renderSelects() {
+          var sorted = state.players.slice().sort(function (x, y) { return x.name.localeCompare(y.name); });
+          var sels = selectIds.map(function (sid) { return document.getElementById(sid); });
+          sels.forEach(function (sel) {
+            var prev = sel.value;
+            var html = '<option value="">— pick a player —</option>';
+            sorted.forEach(function (p) {
+              html += '<option value="' + p.id + '">' + esc(p.name) + "</option>";
+            });
+            sel.innerHTML = html;
+            if (prev && playerById(prev)) sel.value = prev;
+          });
+          // Resolve duplicates/empties left by preserved picks: walk the four
+          // slots in order and give each the first player not already used.
+          var used = {};
+          sels.forEach(function (sel) {
+            if (sel.value && !used[sel.value]) { used[sel.value] = true; return; }
+            var free = null;
+            for (var i = 0; i < sorted.length; i++) {
+              if (!used[sorted[i].id]) { free = sorted[i]; break; }
+            }
+            sel.value = free ? free.id : "";
+            if (free) used[free.id] = true;
+          });
+          document.getElementById("saveMatchBtn").disabled = state.players.length < 4;
+        }
+
+        /* ---------------- Match form ---------------- */
+
+        function buildSetRows() {
+          var grid = document.getElementById("setsGrid");
+          grid.innerHTML = '<div class="set-row">' +
+            '<span class="set-name">Set</span>' +
+            '<input type="number" min="0" max="30" inputmode="numeric" id="set1A" aria-label="Team A games" />' +
+            '<span class="dash">–</span>' +
+            '<input type="number" min="0" max="30" inputmode="numeric" id="set1B" aria-label="Team B games" />' +
+            "</div>";
+        }
+
+        function showError(msg) {
+          var el = document.getElementById("formError");
+          el.textContent = msg;
+          el.classList.add("show");
+        }
+        function clearError() {
+          document.getElementById("formError").classList.remove("show");
+        }
+
+        document.getElementById("matchForm").addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          clearError();
+          var a1 = document.getElementById("selA1").value;
+          var a2 = document.getElementById("selA2").value;
+          var b1 = document.getElementById("selB1").value;
+          var b2 = document.getElementById("selB2").value;
+          if (!a1 || !a2 || !b1 || !b2) { showError("Pick all four players first."); return; }
+          var picked = [a1, a2, b1, b2];
+          if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
+
+          var date = document.getElementById("matchDate").value;
+          if (!date) { showError("Pick the match date."); return; }
+
+          var ga = document.getElementById("set1A").value;
+          var gb = document.getElementById("set1B").value;
+          if (ga === "" || gb === "") { showError("Enter the set score for both teams."); return; }
+          var na = parseInt(ga, 10), nb = parseInt(gb, 10);
+          if (isNaN(na) || isNaN(nb) || na < 0 || nb < 0 || na > 30 || nb > 30) { showError("Set games must be between 0 and 30."); return; }
+          if (na === nb) { showError("The set can't be tied — someone has to win it."); return; }
+          var sets = [[na, nb]];
+
+          var official = document.getElementById("officialCheck").checked;
+          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
+
+          state.matches.push(match);
+          document.getElementById("set1A").value = "";
+          document.getElementById("set1B").value = "";
+          document.getElementById("officialCheck").checked = false;
+          render();
+          var w = setsWinner(match);
+          var names = w === "A"
+            ? playerById(a1).name + " & " + playerById(a2).name
+            : playerById(b1).name + " & " + playerById(b2).name;
+          toast("Match saved — " + names + " take it " + scoreString(match) + ".");
+        });
+
+        /* ---------------- Roster form ---------------- */
+
+        document.getElementById("addPlayerForm").addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var input = document.getElementById("newPlayerName");
+          var name = input.value.trim();
+          if (!name) return;
+          var dupe = state.players.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
+          if (dupe) { toast("“" + name + "” is already on the roster."); return; }
+          state.players.push({ id: uid("p"), name: name });
+          input.value = "";
+          render();
+          toast(name + " added to the roster.");
+        });
+
+        /* ---------------- Export / import ---------------- */
+
+        document.getElementById("exportBtn").addEventListener("click", function () {
+          var payload = {
+            app: "tennis-club-elo-tracker",
+            version: 1,
+            exported: new Date().toISOString(),
+            players: state.players,
+            matches: state.matches.map(function (m) {
+              return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: !!m.official };
+            })
+          };
+          var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = "tennis-club-elo.json";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          toast("Club record downloaded.");
+        });
+
+        var importFile = document.getElementById("importFile");
+        document.getElementById("importBtn").addEventListener("click", function () { importFile.click(); });
+        importFile.addEventListener("change", function () {
+          var file = importFile.files && importFile.files[0];
+          importFile.value = "";
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function () {
+            try {
+              var data = JSON.parse(String(reader.result));
+              if (!data || !Array.isArray(data.players) || !Array.isArray(data.matches)) throw new Error("shape");
+              // Imported values are untrusted: never let imported ids or
+              // dates reach the page. Regenerate every id (remapping match
+              // references) and accept only real YYYY-MM-DD dates.
+              var idMap = {};
+              var players = [];
+              data.players.forEach(function (p) {
+                if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !p.name.trim()) return;
+                var fresh = uid("p");
+                idMap[p.id] = fresh;
+                players.push({ id: fresh, name: p.name.slice(0, 60) });
+              });
+              function validDate(s) {
+                if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+                var y = Number(s.slice(0, 4)), mo = Number(s.slice(5, 7)), d = Number(s.slice(8, 10));
+                if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+                var dt = new Date(y, mo - 1, d);
+                return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+              }
+              var matches = [];
+              data.matches.forEach(function (m) {
+                if (!m || !validDate(m.date)) return;
+                if (!idMap[m.a1] || !idMap[m.a2] || !idMap[m.b1] || !idMap[m.b2]) return;
+                if (new Set([m.a1, m.a2, m.b1, m.b2]).size !== 4) return;
+                if (!Array.isArray(m.sets) || m.sets.length !== 1) return;
+                var okSets = m.sets.every(function (s) {
+                  return Array.isArray(s) && s.length === 2 &&
+                    Number.isInteger(s[0]) && Number.isInteger(s[1]) &&
+                    s[0] >= 0 && s[1] >= 0 && s[0] <= 30 && s[1] <= 30 && s[0] !== s[1];
+                });
+                if (!okSets) return;
+                var clean = { id: uid("m"), seq: matches.length + 1, date: m.date, a1: idMap[m.a1], a2: idMap[m.a2], b1: idMap[m.b1], b2: idMap[m.b2], sets: m.sets, official: m.official === true };
+                if (!setsWinner(clean)) return;
+                matches.push(clean);
+              });
+              state.players = players;
+              state.matches = matches;
+              render();
+              toast("Imported " + players.length + " players and " + matches.length + " matches.");
+            } catch (e) {
+              toast("That file doesn't look like a club record export.");
+            }
+          };
+          reader.readAsText(file);
+        });
+
+        /* ---------------- Init ---------------- */
+
+        (function init() {
+          var today = new Date();
+          var iso = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+          document.getElementById("matchDate").value = iso;
+          buildSetRows();
+          render();
+        })();
+      })();
+    </script>
+  </body>
+</html>
