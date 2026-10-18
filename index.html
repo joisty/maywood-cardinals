@@ -337,6 +337,7 @@
       }
       footer.foot { margin-top: 26px; color: var(--ink-soft); font-size: 13px; text-align: center; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body>
     <div class="wrap">
@@ -434,6 +435,35 @@
 
         var state = { players: [], matches: [] };
         var seq = 0;
+
+        /* ============ SUPABASE SHARED DATABASE ============
+           Paste your real values below (Supabase dashboard →
+           Project Settings → API). The anon key is safe to
+           embed in a public page — that is what it is for.
+        ==================================================== */
+        var SUPABASE_URL = "https://zjqtjcqbktseaudpuvzw.supabase.co";
+        var SUPABASE_ANON_KEY = "sb_publishable_ZmpDoKrmI4JAVS8T6p6q4w_DJeEFTOD";
+        var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function loadFromDb() {
+          var pr = await sb.from("players").select("*");
+          var mr = await sb.from("matches").select("*").order("date", { ascending: true }).order("seq", { ascending: true });
+          if (pr.error || mr.error) { showError("Couldn't load the club record — check your URL/key and tables."); return false; }
+          state.players = pr.data.map(function (p) { return { id: p.id, name: p.name }; });
+          state.matches = mr.data.map(function (m) {
+            return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: !!m.official };
+          });
+          seq = state.players.length + state.matches.length; // keep uid() unique across members
+          return true;
+        }
+
+        var refreshing = false;
+        async function refreshFromDb() {
+          if (refreshing) return;
+          refreshing = true;
+          if (await loadFromDb()) render();
+          refreshing = false;
+        }
 
         function uid(prefix) {
           seq += 1;
@@ -621,8 +651,10 @@
           html += "</ul>";
           body.innerHTML = html;
           body.querySelectorAll("[data-delete-match]").forEach(function (btn) {
-            btn.addEventListener("click", function () {
+            btn.addEventListener("click", async function () {
               var id = btn.getAttribute("data-delete-match");
+              var del = await sb.from("matches").delete().eq("id", id);
+              if (del.error) { toast("Couldn't delete the match — " + del.error.message); return; }
               state.matches = state.matches.filter(function (m) { return m.id !== id; });
               render();
               toast("Match deleted — ratings recalculated.");
@@ -649,8 +681,10 @@
           html += "</ul>";
           body.innerHTML = html;
           body.querySelectorAll("[data-remove-player]").forEach(function (btn) {
-            btn.addEventListener("click", function () {
+            btn.addEventListener("click", async function () {
               var id = btn.getAttribute("data-remove-player");
+              var del = await sb.from("players").delete().eq("id", id);
+              if (del.error) { toast("Couldn't remove the player — " + del.error.message); return; }
               state.players = state.players.filter(function (p) { return p.id !== id; });
               render();
               toast("Player removed.");
@@ -707,7 +741,7 @@
           document.getElementById("formError").classList.remove("show");
         }
 
-        document.getElementById("matchForm").addEventListener("submit", function (ev) {
+        document.getElementById("matchForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
           clearError();
           var a1 = document.getElementById("selA1").value;
@@ -732,6 +766,12 @@
           var official = document.getElementById("officialCheck").checked;
           var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
 
+          var ins = await sb.from("matches").insert({
+            id: match.id, seq: match.seq, date: match.date,
+            a1: match.a1, a2: match.a2, b1: match.b1, b2: match.b2,
+            sets: match.sets, official: match.official
+          });
+          if (ins.error) { showError("Couldn't save the match — " + ins.error.message); return; }
           state.matches.push(match);
           document.getElementById("set1A").value = "";
           document.getElementById("set1B").value = "";
@@ -746,14 +786,17 @@
 
         /* ---------------- Roster form ---------------- */
 
-        document.getElementById("addPlayerForm").addEventListener("submit", function (ev) {
+        document.getElementById("addPlayerForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
           var input = document.getElementById("newPlayerName");
           var name = input.value.trim();
           if (!name) return;
           var dupe = state.players.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
           if (dupe) { toast("“" + name + "” is already on the roster."); return; }
-          state.players.push({ id: uid("p"), name: name });
+          var pid = uid("p");
+          var pins = await sb.from("players").insert({ id: pid, name: name });
+          if (pins.error) { toast("Couldn't add player — " + pins.error.message); return; }
+          state.players.push({ id: pid, name: name });
           input.value = "";
           render();
           toast(name + " added to the roster.");
@@ -790,7 +833,7 @@
           importFile.value = "";
           if (!file) return;
           var reader = new FileReader();
-          reader.onload = function () {
+          reader.onload = async function () {
             try {
               var data = JSON.parse(String(reader.result));
               if (!data || !Array.isArray(data.players) || !Array.isArray(data.matches)) throw new Error("shape");
@@ -828,9 +871,12 @@
                 if (!setsWinner(clean)) return;
                 matches.push(clean);
               });
-              state.players = players;
-              state.matches = matches;
-              render();
+              var pins = await sb.from("players").upsert(players.map(function (p) { return { id: p.id, name: p.name }; }), { onConflict: "id" });
+              var mins = await sb.from("matches").upsert(matches.map(function (m) {
+                return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: m.official };
+              }), { onConflict: "id" });
+              if (pins.error || mins.error) { toast("Import failed — " + (pins.error || mins.error).message); return; }
+              await refreshFromDb();
               toast("Imported " + players.length + " players and " + matches.length + " matches.");
             } catch (e) {
               toast("That file doesn't look like a club record export.");
@@ -841,12 +887,23 @@
 
         /* ---------------- Init ---------------- */
 
-        (function init() {
+        (async function init() {
           var today = new Date();
           var iso = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
           document.getElementById("matchDate").value = iso;
           buildSetRows();
-          render();
+          if (SUPABASE_URL.indexOf("PASTE_") === 0) {
+            render();
+            showError("Add your Supabase Project URL and anon key at the top of this file to connect the shared club record.");
+            return;
+          }
+          if (await loadFromDb()) {
+            render();
+            sb.channel("club-record")
+              .on("postgres_changes", { event: "*", schema: "public", table: "players" }, function () { refreshFromDb(); })
+              .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, function () { refreshFromDb(); })
+              .subscribe();
+          }
         })();
       })();
     </script>
