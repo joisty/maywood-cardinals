@@ -449,6 +449,11 @@
         var SUPABASE_ANON_KEY = "sb_publishable_ZmpDoKrmI4JAVS8T6p6q4w_DJeEFTOD";
         var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // Set this to a unique identifier for the manager (owner). The manager is allowed to export/import.
+        // Replace with your manager email or username as appropriate.
+        var MANAGER_EMAIL = "joisty";
+        var isManager = false;
+
         async function loadFromDb() {
           var pr = await sb.from("players").select("*");
           var mr = await sb.from("matches").select("*").order("date", { ascending: true }).order("seq", { ascending: true });
@@ -504,7 +509,7 @@
           var ratings = {}, stats = {};
           state.players.forEach(function (p) {
             ratings[p.id] = START_RATING;
-            stats[p.id] = { played: 0, wins: 0, losses: 0, form: [], streakType: null, streakCount: 0 };
+            stats[p.id] = { played: 0, wins: 0, losses: 0, form: [], streakType: null, streakCount: 0, gamesWon: 0, gamesLost: 0 };
           });
           var ordered = state.matches.slice().sort(function (x, y) {
             if (x.date !== y.date) return x.date < y.date ? -1 : 1;
@@ -523,22 +528,30 @@
             m.deltaB = dB;
             ratings[m.a1] += dA; ratings[m.a2] += dA;
             ratings[m.b1] += dB; ratings[m.b2] += dB;
+
+            // Track per-player stats including games won/lost (sum of set games for their team)
+            m.sets.forEach(function (s) {
+              // s[0] == Team A games, s[1] == Team B games for this set
+              [m.a1, m.a2].forEach(function (id) { stats[id].gamesWon += s[0]; stats[id].gamesLost += s[1]; });
+              [m.b1, m.b2].forEach(function (id) { stats[id].gamesWon += s[1]; stats[id].gamesLost += s[0]; });
+            });
+
             [m.a1, m.a2, m.b1, m.b2].forEach(function (id) { stats[id].played++; });
             if (winner === "Draw") {
               [m.a1, m.a2, m.b1, m.b2].forEach(function (id) { stats[id].form.push("D"); });
             } else {
-            var winners = winner === "A" ? [m.a1, m.a2] : [m.b1, m.b2];
-            var losers = winner === "A" ? [m.b1, m.b2] : [m.a1, m.a2];
-            winners.forEach(function (id) {
-              var s = stats[id];
-              s.wins++; s.form.push("W");
-              if (s.streakType === "W") s.streakCount++; else { s.streakType = "W"; s.streakCount = 1; }
-            });
-            losers.forEach(function (id) {
-              var s = stats[id];
-              s.losses++; s.form.push("L");
-              if (s.streakType === "L") s.streakCount++; else { s.streakType = "L"; s.streakCount = 1; }
-            });
+              var winners = winner === "A" ? [m.a1, m.a2] : [m.b1, m.b2];
+              var losers = winner === "A" ? [m.b1, m.b2] : [m.a1, m.a2];
+              winners.forEach(function (id) {
+                var s = stats[id];
+                s.wins++; s.form.push("W");
+                if (s.streakType === "W") s.streakCount++; else { s.streakType = "W"; s.streakCount = 1; }
+              });
+              losers.forEach(function (id) {
+                var s = stats[id];
+                s.losses++; s.form.push("L");
+                if (s.streakType === "L") s.streakCount++; else { s.streakType = "L"; s.streakCount = 1; }
+              });
             }
           });
           return { ratings: ratings, stats: stats, ordered: ordered };
@@ -613,10 +626,14 @@
           var html = '<div class="table-scroll"><table class="standings"><thead><tr>' +
             "<th>#</th><th>Player</th><th class=\"num\">ELO</th><th class=\"num col-hide-sm\">Played</th>" +
             "<th class=\"num\">W</th><th class=\"num\">L</th><th class=\"num col-hide-sm\">Win %</th>" +
+            // Add games won / lost columns after Win %
+            "<th class=\"num col-hide-sm\">Games W</th><th class=\"num col-hide-sm\">Games L</th>" +
             "<th class=\"col-hide-sm\">Form</th><th>Streak</th></tr></thead><tbody>";
           rows.forEach(function (p, i) {
             var s = c.stats[p.id];
-            var winPct = s.played ? Math.round((s.wins / s.played) * 100) + "%" : "—";
+            // Win percentage excluding draws: wins / (wins + losses)
+            var wl = s.wins + s.losses;
+            var winPct = wl ? Math.round((s.wins / wl) * 100) + "%" : "—";
             var form = s.form.slice(-5).map(function (f) {
               var cls = f === "W" ? "w" : f === "D" ? "d" : "l";
               var label = f === "W" ? "Win" : f === "D" ? "Draw" : "Loss";
@@ -634,6 +651,8 @@
               '<td class="num">' + s.wins + "</td>" +
               '<td class="num">' + s.losses + "</td>" +
               '<td class="num col-hide-sm">' + winPct + "</td>" +
+              '<td class="num col-hide-sm">' + (s.gamesWon || 0) + "</td>" +
+              '<td class="num col-hide-sm">' + (s.gamesLost || 0) + "</td>" +
               '<td class="col-hide-sm"><span class="form-dots">' + form + "</span></td>" +
               "<td>" + streak + "</td></tr>";
           });
@@ -846,6 +865,7 @@
         /* ---------------- Export / import ---------------- */
 
         document.getElementById("exportBtn").addEventListener("click", function () {
+          if (!isManager) { toast("Only the manager may export the club record."); return; }
           var payload = {
             app: "tennis-club-elo-tracker",
             version: 1,
@@ -868,8 +888,12 @@
         });
 
         var importFile = document.getElementById("importFile");
-        document.getElementById("importBtn").addEventListener("click", function () { importFile.click(); });
+        document.getElementById("importBtn").addEventListener("click", function () { 
+          if (!isManager) { toast("Only the manager may import the club record."); return; }
+          importFile.click(); 
+        });
         importFile.addEventListener("change", function () {
+          if (!isManager) { toast("Only the manager may import the club record."); importFile.value = ""; return; }
           var file = importFile.files && importFile.files[0];
           importFile.value = "";
           if (!file) return;
@@ -937,6 +961,23 @@
           matchDateInput.title = "Date fixed to today — contact the manager to record or change older matches.";
 
           buildSetRows();
+
+          // Determine whether the current logged-in user is the manager.
+          try {
+            var userResp = await sb.auth.getUser();
+            var user = userResp && userResp.data && userResp.data.user ? userResp.data.user : null;
+            if (user && user.email && user.email.toLowerCase().indexOf(MANAGER_EMAIL.toLowerCase()) !== -1) {
+              isManager = true;
+            }
+          } catch (e) {
+            // ignore - treat as not manager
+          }
+          // Hide export/import controls for non-managers
+          if (!isManager) {
+            var eb = document.getElementById('exportBtn'); if (eb) eb.style.display = 'none';
+            var ib = document.getElementById('importBtn'); if (ib) ib.style.display = 'none';
+          }
+
           if (SUPABASE_URL.indexOf("PASTE_") === 0) {
             render();
             showError("Add your Supabase Project URL and anon key at the top of this file to connect the shared club record.");
