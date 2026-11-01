@@ -178,6 +178,34 @@
         section.panel { padding: 16px 14px; }
       }
 
+      .rating-toggle {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 12px;
+      }
+      .toggle-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink-soft);
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 7px 11px;
+        cursor: pointer;
+      }
+      .toggle-option input { accent-color: var(--court); }
+      .toggle-note {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--ink-soft);
+        text-align: right;
+      }
+
       /* ---------- Forms ---------- */
       label.field-label {
         display: block;
@@ -364,6 +392,11 @@
           <h2 id="standingsH">Standings</h2>
           <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
           <div id="standingsBody"></div>
+          <div class="rating-toggle" role="radiogroup" aria-label="Rating display selection">
+            <label class="toggle-option"><input type="radio" name="ratingMode" value="ratings" checked /> Ratings</label>
+            <label class="toggle-option"><input type="radio" name="ratingMode" value="raw" /> Raw ELO</label>
+          </div>
+          <div class="toggle-note">Temporary display: Ratings = Raw ELO + (2 × played matches).</div>
         </section>
 
         <section class="panel" aria-labelledby="recordH">
@@ -429,7 +462,7 @@
         </section>
       </div>
 
-      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied s[...]</footer>
+      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied s[...]
     </div>
 
     <div class="toast" id="toast" role="status"></div>
@@ -440,6 +473,7 @@
 
         var START_RATING = 1500;
         var K = 32;
+        var ratingMode = "ratings";
 
         var state = { players: [], matches: [] };
         var seq = 0;
@@ -581,6 +615,12 @@
           return iso === todayIso();
         }
 
+        function displayRating(c, playerId) {
+          var raw = c.ratings[playerId];
+          var played = c.stats[playerId].played || 0;
+          return ratingMode === "ratings" ? raw + (2 * played) : raw;
+        }
+
         var toastTimer = null;
         function toast(msg) {
           var el = document.getElementById("toast");
@@ -610,7 +650,8 @@
           var top = "—";
           var best = -Infinity;
           state.players.forEach(function (p) {
-            if (c.stats[p.id].played > 0 && c.ratings[p.id] > best) { best = c.ratings[p.id]; top = p.name; }
+            var score = displayRating(c, p.id);
+            if (c.stats[p.id].played > 0 && score > best) { best = score; top = p.name; }
           });
           document.getElementById("statTop").textContent = top;
           document.getElementById("statTop").style.fontSize = top === "—" ? "" : "17px";
@@ -623,21 +664,23 @@
             return;
           }
           var rows = state.players.slice().sort(function (x, y) {
-            if (c.ratings[y.id] !== c.ratings[x.id]) return c.ratings[y.id] - c.ratings[x.id];
+            var a = displayRating(c, x.id);
+            var b = displayRating(c, y.id);
+            if (b !== a) return b - a;
             if (c.stats[y.id].wins !== c.stats[x.id].wins) return c.stats[y.id].wins - c.stats[x.id].wins;
             return x.name.localeCompare(y.name);
           });
+          var headerLabel = ratingMode === "ratings" ? "Rating" : "ELO";
           var html = '<div class="table-scroll"><table class="standings"><thead><tr>' +
-            "<th>#</th><th>Player</th><th class=\"num\">ELO</th><th class=\"num col-hide-sm\">Played</th>" +
+            "<th>#</th><th>Player</th><th class=\"num\">" + headerLabel + "</th><th class=\"num col-hide-sm\">Played</th>" +
             "<th class=\"num\">W</th><th class=\"num\">L</th><th class=\"num col-hide-sm\">Win %</th>" +
-            // GW / GL shortened labels
             "<th class=\"num col-hide-sm\">GW</th><th class=\"num col-hide-sm\">GL</th>" +
             "<th class=\"col-hide-sm\">Form</th><th>Streak</th></tr></thead><tbody>";
           rows.forEach(function (p, i) {
             var s = c.stats[p.id];
-            // Win percentage excluding draws: wins / (wins + losses)
             var wl = s.wins + s.losses;
             var winPct = wl ? Math.round((s.wins / wl) * 100) + "%" : "—";
+            var displayVal = Math.round(displayRating(c, p.id));
             var form = s.form.slice(-5).map(function (f) {
               var cls = f === "W" ? "w" : f === "D" ? "d" : "l";
               var label = f === "W" ? "Win" : f === "D" ? "Draw" : "Loss";
@@ -650,7 +693,7 @@
             html += '<tr' + (i === 0 && s.played > 0 ? ' class="top"' : "") + ">" +
               "<td class=\"rank\">" + (i + 1) + "</td>" +
               '<td class="player-name">' + esc(p.name) + "</td>" +
-              '<td class="elo num">' + c.ratings[p.id] + "</td>" +
+              '<td class="elo num">' + displayVal + "</td>" +
               '<td class="num col-hide-sm">' + s.played + "</td>" +
               '<td class="num">' + s.wins + "</td>" +
               '<td class="num">' + s.losses + "</td>" +
@@ -834,7 +877,7 @@
           var isDraw = na === nb;
 
           var official = document.getElementById("officialCheck").checked;
-          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: !!official };
+          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
 
           var ins = await sb.from("matches").insert({
             id: match.id, seq: match.seq, date: match.date,
@@ -962,6 +1005,13 @@
             }
           };
           reader.readAsText(file);
+        });
+
+        document.querySelectorAll('input[name="ratingMode"]').forEach(function (input) {
+          input.addEventListener("change", function () {
+            ratingMode = input.value;
+            render();
+          });
         });
 
         /* ---------------- Init ---------------- */
