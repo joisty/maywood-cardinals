@@ -770,10 +770,12 @@
 
           var savedMember = null;
           try { savedMember = localStorage.getItem("club_member_session"); } catch (e) {}
-          if (savedMember && playerById(savedMember)) {
+          var savedPlayer = savedMember ? playerById(savedMember) : null;
+          if (savedPlayer && normalizePinValue(savedPlayer.phone_last4) !== null) {
             state.currentMemberId = savedMember;
           } else {
             state.currentMemberId = null;
+            try { localStorage.removeItem("club_member_session"); } catch (e) {}
           }
           renderLoginOptions();
           return true;
@@ -1315,6 +1317,19 @@
             return;
           }
 
+          if (!(await ensureCurrentVersion())) return;
+          var playerResult = await sb.from("players").select("*").eq("id", memberId).maybeSingle();
+          if (playerResult.error) {
+            authError("Couldn't verify your PIN — check your connection and try again.");
+            return;
+          }
+          if (!playerResult.data) {
+            authError("Member not found.");
+            return;
+          }
+
+          player.name = playerResult.data.name;
+          player.phone_last4 = readPlayerPhone(playerResult.data);
           var storedPin = normalizePinValue(player.phone_last4);
           if (storedPin === null) {
             if (pin !== "1234") {
