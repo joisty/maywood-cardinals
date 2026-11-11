@@ -1345,16 +1345,14 @@
               return;
             }
 
-            var phone = window.prompt("Enter your 4-digit phone number to set up your PIN:");
+            var phone = window.prompt("Enter exactly the last 4 digits of your phone number to set up your PIN:");
             if (phone === null) return;
 
-            var digits = phone.replace(/\D/g, "");
-            if (digits.length < 4) {
-              authError("Enter a phone number with exactly 4 digits.");
+            var newPin = phone.trim();
+            if (!/^\d{4}$/.test(newPin)) {
+              authError("Enter exactly 4 digits (0–9).");
               return;
             }
-
-            var newPin = digits.slice(-4);
             try {
               var saved = await updatePlayerPin(player.id, newPin);
               if (!saved) throw new Error("Couldn't save this PIN.");
