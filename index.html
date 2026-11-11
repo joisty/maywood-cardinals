@@ -1214,8 +1214,11 @@
           ev.preventDefault();
           clearAuthError();
 
+          var pinInput = document.getElementById("memberPin");
+          var pin = pinInput.value.trim();
+          pinInput.value = "";
+
           var memberId = document.getElementById("memberSelect").value;
-          var pin = document.getElementById("memberPin").value.trim();
           if (!memberId) {
             authError("Select your member name.");
             return;
@@ -1233,21 +1236,31 @@
 
           var storedPin = normalizePinValue(player.phone_last4);
           if (storedPin === null) {
-            try {
-              await updatePlayerPin(player.id, pin);
-              localStorage.setItem("club_member_session", memberId);
-              state.currentMemberId = memberId;
-              syncAuthView();
-              toast(player.name + " logged in.");
+            if (pin !== "1234") {
+              authError("wrong PIN number");
               return;
+            }
+
+            var phone = window.prompt("Enter your 4-digit phone number to set up your PIN:");
+            if (phone === null) return;
+
+            var digits = phone.replace(/\D/g, "");
+            if (digits.length < 4) {
+              authError("Enter a phone number with exactly 4 digits.");
+              return;
+            }
+
+            var newPin = digits.slice(-4);
+            try {
+              var saved = await updatePlayerPin(player.id, newPin);
+              if (!saved) throw new Error("Couldn't save this PIN.");
+              player.phone_last4 = newPin;
             } catch (err) {
               authError(err.message || "Couldn't save this PIN.");
               return;
             }
-          }
-
-          if (String(storedPin) !== pin) {
-            authError("Incorrect PIN for this member.");
+          } else if (String(storedPin) !== pin) {
+            authError("wrong PIN number");
             return;
           }
 
