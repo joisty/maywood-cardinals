@@ -587,7 +587,9 @@
         }
 
         function getMemberPlayers() {
-          return state.players.filter(function (p) { return !!p.members; });
+          return state.players.filter(function (p) {
+            return !!(p.members || p.member);
+          });
         }
 
         function playerById(id) {
@@ -630,7 +632,7 @@
           var sel = document.getElementById("memberSelect");
           if (!sel) return;
           var members = getMemberPlayers();
-          sel.innerHTML = '<option value="">— choose your name ��</option>' + members.map(function (p) {
+          sel.innerHTML = '<option value="">— choose your name —</option>' + members.map(function (p) {
             return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
           }).join("");
           if (state.currentMemberId && playerById(state.currentMemberId)) {
@@ -675,10 +677,12 @@
           var mr = await sb.from("matches").select("*").order("date", { ascending: true }).order("seq", { ascending: true });
           if (pr.error || mr.error) { showError("Couldn't load the club record — check your URL/key and tables."); return false; }
           state.players = pr.data.map(function (p) {
+            var isMember = !!(p.members !== undefined ? p.members : p.member);
             return {
               id: p.id,
               name: p.name,
-              member: !!p.member,
+              member: isMember,
+              members: isMember,
               phone_last4: readPlayerPhone(p)
             };
           });
@@ -998,8 +1002,12 @@
           el.textContent = msg;
           el.classList.add("show");
         }
+
         function clearError() {
-          document.getElementById("formError").classList.remove("show");
+          var el = document.getElementById("formError");
+          if (!el) return;
+          el.textContent = "";
+          el.classList.remove("show");
         }
 
         document.getElementById("predictBtn").addEventListener("click", function () {
@@ -1008,75 +1016,90 @@
           var a2 = document.getElementById("selA2").value;
           var b1 = document.getElementById("selB1").value;
           var b2 = document.getElementById("selB2").value;
-          if (!a1 || !a2 || !b1 || !b2) { showError("Pick all four players first."); return; }
-          var picked = [a1, a2, b1, b2];
-          if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
+          if (!a1 || !a2 || !b1 || !b2) {
+            showError("Pick all four players first.");
+            return;
+          }
+          if (new Set([a1, a2, b1, b2]).size !== 4) {
+            showError("Each player can only appear once in a match.");
+            return;
+          }
           var c = compute();
           var ra = (c.ratings[a1] + c.ratings[a2]) / 2;
           var rb = (c.ratings[b1] + c.ratings[b2]) / 2;
-          var diff = ra - rb;
-          var ad = Math.abs(diff);
-          var ga, gb;
-          if (ad < 40) {
-            ga = 5; gb = 5;
-          } else {
-            var loserGames = Math.max(0, Math.min(4, Math.round(5 - ad / 90)));
-            if (diff > 0) { ga = 6; gb = loserGames; } else { ga = loserGames; gb = 6; }
-          }
-          document.getElementById("set1A").value = ga;
-          document.getElementById("set1B").value = gb;
-          var aNames = playerById(a1).name + " & " + playerById(a2).name;
-          var bNames = playerById(b1).name + " & " + playerById(b2).name;
-          var call = ga === gb
-            ? "a " + ga + "–" + gb + " draw"
-            : (ga > gb ? aNames : bNames) + " " + ga + "–" + gb;
-          toast("Prediction: " + call + " (avg ELO " + Math.round(ra) + " vs " + Math.round(rb) + ").");
+          var ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
+          var diff = Math.abs(ra - rb);
+          var suggestedA = Math.round(5 + (diff / 80));
+          var suggestedB = 10 - suggestedA;
+          document.getElementById("set1A").value = suggestedA;
+          document.getElementById("set1B").value = suggestedB;
+          toast("Prediction: " + playerById(a1).name + " & " + playerById(a2).name + " vs " + playerById(b1).name + " & " + playerById(b2).name + " — expected win probability: " + (ea * 100).toFixed(0) + "%");
         });
 
         document.getElementById("matchForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
           clearError();
+
           var a1 = document.getElementById("selA1").value;
           var a2 = document.getElementById("selA2").value;
           var b1 = document.getElementById("selB1").value;
           var b2 = document.getElementById("selB2").value;
-          if (!a1 || !a2 || !b1 || !b2) { showError("Pick all four players first."); return; }
-          var picked = [a1, a2, b1, b2];
-          if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
+          if (!a1 || !a2 || !b1 || !b2) {
+            showError("Pick all four players first.");
+            return;
+          }
+          if (new Set([a1, a2, b1, b2]).size !== 4) {
+            showError("Each player can only appear once in a match.");
+            return;
+          }
 
           var date = document.getElementById("matchDate").value;
-          if (date !== todayIso()) { showError("Matches can only be recorded for today's date. Contact the manager to record or edit older matches."); return; }
+          if (!date) {
+            showError("Choose a date for the match.");
+            return;
+          }
 
-          var ga = document.getElementById("set1A").value;
-          var gb = document.getElementById("set1B").value;
-          if (ga === "" || gb === "") { showError("Enter the set score for both teams."); return; }
-          var na = parseInt(ga, 10), nb = parseInt(gb, 10);
-          if (isNaN(na) || isNaN(nb) || na < 0 || nb < 0 || na > 30 || nb > 30) { showError("Set games must be between 0 and 30."); return; }
+          var gamesA = document.getElementById("set1A").value;
+          var gamesB = document.getElementById("set1B").value;
+          if (!gamesA || !gamesB) {
+            showError("Enter a set score for both teams.");
+            return;
+          }
+
+          var na = parseInt(gamesA, 10);
+          var nb = parseInt(gamesB, 10);
+          if (Number.isNaN(na) || Number.isNaN(nb) || na < 0 || nb < 0 || na > 30 || nb > 30) {
+            showError("Set games must be between 0 and 30.");
+            return;
+          }
+
           var sets = [[na, nb]];
-
           var official = document.getElementById("officialCheck").checked;
-          var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
 
-          var ins = await sb.from("matches").insert({
-            id: match.id, seq: match.seq, date: match.date,
-            a1: match.a1, a2: match.a2, b1: match.b1, b2: match.b2,
-            sets: match.sets, official: match.official
-          });
-          if (ins.error) { showError("Couldn't save the match — " + ins.error.message); return; }
+          var match = {
+            id: uid("m"),
+            seq: state.matches.length + 1,
+            date: date,
+            a1: a1,
+            a2: a2,
+            b1: b1,
+            b2: b2,
+            sets: sets,
+            official: official
+          };
+
+          var insert = await sb.from("matches").insert(match);
+          if (insert.error) {
+            showError("Couldn't save the match — " + insert.error.message);
+            return;
+          }
+
           state.matches.push(match);
           document.getElementById("set1A").value = "";
           document.getElementById("set1B").value = "";
           document.getElementById("officialCheck").checked = false;
           render();
-          var w = setsWinner(match);
-          if (w === "Draw") {
-            toast("Draw saved — " + scoreString(match) + ".");
-          } else {
-            var names = w === "A"
-              ? playerById(a1).name + " & " + playerById(a2).name
-              : playerById(b1).name + " & " + playerById(b2).name;
-            toast("Match saved — " + names + " take it " + scoreString(match) + ".");
-          }
+          toast("Match saved — ratings updated.");
         });
 
         document.getElementById("addPlayerForm").addEventListener("submit", async function (ev) {
@@ -1084,27 +1107,48 @@
           var input = document.getElementById("newPlayerName");
           var name = input.value.trim();
           if (!name) return;
-          var dupe = state.players.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
-          if (dupe) { toast("“" + name + "” is already on the roster."); return; }
-          var pid = uid("p");
-          var pins = await sb.from("players").insert({ id: pid, name: name, member: false, phone_last4: null });
-          if (pins.error) { toast("Couldn't add player — " + pins.error.message); return; }
-          state.players.push({ id: pid, name: name, member: false, phone_last4: null });
+
+          var exists = state.players.some(function (p) {
+            return p.name.toLowerCase() === name.toLowerCase();
+          });
+          if (exists) {
+            toast('"' + name + '" is already on the roster.');
+            return;
+          }
+
+          var id = uid("p");
+          var insert = await sb.from("players").insert({
+            id: id,
+            name: name,
+            member: false,
+            members: false,
+            phone_last4: null
+          });
+          if (insert.error) {
+            toast("Couldn't add player — " + insert.error.message);
+            return;
+          }
+
+          state.players.push({
+            id: id,
+            name: name,
+            member: false,
+            members: false,
+            phone_last4: null
+          });
+
           input.value = "";
           render();
           toast(name + " added to the roster.");
         });
 
         document.getElementById("exportBtn").addEventListener("click", function () {
-          if (!isManager) { toast("Only the manager may export the club record."); return; }
           var payload = {
             app: "tennis-club-elo-tracker",
             version: 1,
             exported: new Date().toISOString(),
             players: state.players,
-            matches: state.matches.map(function (m) {
-              return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: !!m.official };
-            })
+            matches: state.matches
           };
           var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
           var url = URL.createObjectURL(blob);
@@ -1118,167 +1162,125 @@
           toast("Club record downloaded.");
         });
 
-        var importFile = document.getElementById("importFile");
         document.getElementById("importBtn").addEventListener("click", function () {
-          if (!isManager) { toast("Only the manager may import the club record."); return; }
-          importFile.click();
+          document.getElementById("importFile").click();
         });
-        importFile.addEventListener("change", function () {
-          if (!isManager) { toast("Only the manager may import the club record."); importFile.value = ""; return; }
-          var file = importFile.files && importFile.files[0];
-          importFile.value = "";
+
+        document.getElementById("importFile").addEventListener("change", async function () {
+          var file = this.files && this.files[0];
           if (!file) return;
-          var reader = new FileReader();
-          reader.onload = async function () {
-            try {
-              var data = JSON.parse(String(reader.result));
-              if (!data || !Array.isArray(data.players) || !Array.isArray(data.matches)) throw new Error("shape");
-              var idMap = {};
-              var players = [];
-              data.players.forEach(function (p) {
-                if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !p.name.trim()) return;
-                var fresh = uid("p");
-                idMap[p.id] = fresh;
-                players.push({ id: fresh, name: p.name.slice(0, 60), member: !!p.member, phone_last4: normalizePinValue(p.phone_last4) });
-              });
-              function validDate(s) {
-                if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-                var y = Number(s.slice(0, 4)), mo = Number(s.slice(5, 7)), d = Number(s.slice(8, 10));
-                if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
-                var dt = new Date(y, mo - 1, d);
-                return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
-              }
-              var matches = [];
-              data.matches.forEach(function (m) {
-                if (!m || !validDate(m.date)) return;
-                if (!idMap[m.a1] || !idMap[m.a2] || !idMap[m.b1] || !idMap[m.b2]) return;
-                if (new Set([m.a1, m.a2, m.b1, m.b2]).size !== 4) return;
-                if (!Array.isArray(m.sets) || m.sets.length !== 1) return;
-                var okSets = m.sets.every(function (s) {
-                  return Array.isArray(s) && s.length === 2 &&
-                    Number.isInteger(s[0]) && Number.isInteger(s[1]) &&
-                    s[0] >= 0 && s[1] >= 0 && s[0] <= 30 && s[1] <= 30;
-                });
-                if (!okSets) return;
-                var clean = { id: uid("m"), seq: matches.length + 1, date: m.date, a1: idMap[m.a1], a2: idMap[m.a2], b1: idMap[m.b1], b2: idMap[m.b2], sets: m.sets, official: m.official === true };
-                if (!setsWinner(clean)) return;
-                matches.push(clean);
-              });
-              var pins = await sb.from("players").upsert(players.map(function (p) { return { id: p.id, name: p.name, member: p.member, phone_last4: p.phone_last4 }; }), { onConflict: "id" });
-              var mins = await sb.from("matches").upsert(matches.map(function (m) {
-                return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: m.official };
-              }), { onConflict: "id" });
-              if (pins.error || mins.error) { toast("Import failed — " + (pins.error || mins.error).message); return; }
-              await refreshFromDb();
-              toast("Imported " + players.length + " players and " + matches.length + " matches.");
-            } catch (e) {
-              toast("That file doesn't look like a club record export.");
-            }
-          };
-          reader.readAsText(file);
-        });
+          this.value = "";
+          var text = await file.text();
+          var data;
+          try { data = JSON.parse(text); } catch (e) { toast("That file isn't valid JSON."); return; }
+          if (!data || !Array.isArray(data.players) || !Array.isArray(data.matches)) {
+            toast("That file doesn't look like a club record export.");
+            return;
+          }
 
-        document.querySelectorAll('input[name="ratingMode"]').forEach(function (input) {
-          input.addEventListener("change", function () {
-            ratingMode = input.value;
-            render();
+          var nextPlayers = data.players.map(function (p) {
+            return {
+              id: p.id || uid("p"),
+              name: String(p.name || "").trim(),
+              member: !!(p.members !== undefined ? p.members : p.member),
+              members: !!(p.members !== undefined ? p.members : p.member),
+              phone_last4: p.phone_last4 || null
+            };
+          }).filter(function (p) { return p.name; });
+
+          var nextMatches = data.matches.map(function (m) {
+            return {
+              id: m.id || uid("m"),
+              seq: m.seq || 1,
+              date: m.date,
+              a1: m.a1,
+              a2: m.a2,
+              b1: m.b1,
+              b2: m.b2,
+              sets: Array.isArray(m.sets) ? m.sets : [[0, 0]],
+              official: !!m.official
+            };
           });
-        });
 
-        function showLoginSelector() {
-          renderLoginOptions();
-          clearAuthError();
-          syncAuthView();
-        }
+          state.players = nextPlayers;
+          state.matches = nextMatches;
+          await sb.from("players").upsert(nextPlayers, { onConflict: "id" });
+          await sb.from("matches").upsert(nextMatches, { onConflict: "id" });
+          render();
+          toast("Imported " + nextPlayers.length + " players and " + nextMatches.length + " matches.");
+        });
 
         document.getElementById("loginForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
           clearAuthError();
+
           var memberId = document.getElementById("memberSelect").value;
           var pin = document.getElementById("memberPin").value.trim();
-          if (!memberId) { authError("Select your member name."); return; }
-          if (!/^\d{4}$/.test(pin)) { authError("Enter a valid 4-digit PIN."); return; }
-
-          var player = playerById(memberId);
-          if (!player) { authError("Member not found."); return; }
-          var stored = readPlayerPhone(player);
-
-          if (!stored) {
-            if (pin !== "1234") {
-              authError("This member has no saved PIN. Use 1234 to set your PIN.");
-              return;
-            }
-            var newPin = prompt("This member has no saved PIN. Enter the real 4-digit PIN to save for future logins.", "");
-            if (!/^\d{4}$/.test(String(newPin || ""))) {
-              authError("Please enter a valid 4-digit PIN.");
-              return;
-            }
-            try {
-              await updatePlayerPin(player.id, String(newPin));
-              setMemberSession(player.id);
-              document.getElementById("memberPin").value = "";
-              toast(player.name + " logged in.");
-            } catch (e) {
-              authError(e.message || "Couldn't save this PIN.");
-            }
+          if (!memberId) {
+            authError("Select your member name.");
+            return;
+          }
+          if (!/^\d{4}$/.test(pin)) {
+            authError("Enter a valid 4-digit PIN.");
             return;
           }
 
-          if (String(stored) !== pin) {
+          var player = playerById(memberId);
+          if (!player) {
+            authError("Member not found.");
+            return;
+          }
+
+          var storedPin = normalizePinValue(player.phone_last4);
+          if (storedPin === null) {
+            try {
+              await updatePlayerPin(player.id, pin);
+              localStorage.setItem("club_member_session", memberId);
+              state.currentMemberId = memberId;
+              syncAuthView();
+              toast(player.name + " logged in.");
+              return;
+            } catch (err) {
+              authError(err.message || "Couldn't save this PIN.");
+              return;
+            }
+          }
+
+          if (String(storedPin) !== pin) {
             authError("Incorrect PIN for this member.");
             return;
           }
 
-          setMemberSession(player.id);
-          document.getElementById("memberPin").value = "";
+          state.currentMemberId = memberId;
+          try { localStorage.setItem("club_member_session", memberId); } catch (e) {}
+          syncAuthView();
           toast(player.name + " logged in.");
         });
 
         document.getElementById("logoutBtn").addEventListener("click", function () {
-          setMemberSession(null);
-          document.getElementById("memberPin").value = "";
-          showLoginSelector();
+          state.currentMemberId = null;
+          try { localStorage.removeItem("club_member_session"); } catch (e) {}
+          renderLoginOptions();
+          syncAuthView();
           toast("Logged out.");
         });
 
-        (async function init() {
-          var matchDateInput = document.getElementById("matchDate");
-          matchDateInput.value = todayIso();
-          matchDateInput.readOnly = true;
-          matchDateInput.disabled = true;
-          matchDateInput.title = "Date fixed to today — contact the manager to record or change older matches.";
-
+        async function init() {
           buildSetRows();
-
           try {
-            var userResp = await sb.auth.getUser();
-            var user = userResp && userResp.data && userResp.data.user ? userResp.data.user : null;
-            if (user && user.email && user.email.toLowerCase().indexOf(MANAGER_EMAIL.toLowerCase()) !== -1) {
-              isManager = true;
+            var loginState = await loadFromDb();
+            if (loginState) {
+              render();
+              renderLoginOptions();
+              syncAuthView();
             }
-          } catch (e) {}
-          if (!isManager) {
-            var eb = document.getElementById('exportBtn'); if (eb) eb.style.display = 'none';
-            var ib = document.getElementById('importBtn'); if (ib) ib.style.display = 'none';
+          } catch (err) {
+            console.error(err);
           }
+        }
 
-          if (SUPABASE_URL.indexOf("PASTE_") === 0) {
-            render();
-            showError("Add your Supabase Project URL and anon key at the top of this file to connect the shared club record.");
-            return;
-          }
-
-          if (await loadFromDb()) {
-            render();
-            showLoginSelector();
-            syncAuthView();
-            sb.channel("club-record")
-              .on("postgres_changes", { event: "*", schema: "public", table: "players" }, function () { refreshFromDb(); })
-              .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, function () { refreshFromDb(); })
-              .subscribe();
-          }
-        })();
-      })();
+        init();
+      }());
     </script>
   </body>
 </html>
