@@ -431,10 +431,22 @@
         .toast { transition: none; }
       }
       footer.foot { margin-top: 26px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+      .version-gate { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.72); }
+      .version-gate[hidden] { display: none; }
+      .version-gate-card { width: min(100%, 430px); padding: 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+      .version-gate-card h2 { margin-top: 0; }
+      .version-gate-card p { margin-bottom: 20px; color: var(--ink-soft); }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body>
+    <div class="version-gate" id="versionGate" hidden role="alertdialog" aria-modal="true" aria-labelledby="versionGateTitle" aria-describedby="versionGateMessage">
+      <div class="version-gate-card">
+        <h2 id="versionGateTitle">Update required</h2>
+        <p id="versionGateMessage">Checking this page version…</p>
+        <button type="button" class="primary" id="reloadLatestVersion">Reload latest version</button>
+      </div>
+    </div>
     <div id="authScreen" class="auth-screen">
       <div class="auth-card">
         <h2>Member login</h2>
@@ -559,6 +571,69 @@
         var state = { players: [], matches: [], currentMemberId: null };
         var seq = 0;
 
+        // Bump this value and version.json together for every published page update.
+        var APP_VERSION = "2026-11-11.2";
+        var versionGate = document.getElementById("versionGate");
+        var versionGateMessage = document.getElementById("versionGateMessage");
+        var versionCheckPromise = null;
+
+        function showVersionGate(message) {
+          versionGateMessage.textContent = message;
+          versionGate.hidden = false;
+          document.getElementById("authScreen").setAttribute("inert", "");
+          document.getElementById("appShell").setAttribute("inert", "");
+        }
+
+        function hideVersionGate() {
+          versionGate.hidden = true;
+          document.getElementById("authScreen").removeAttribute("inert");
+          document.getElementById("appShell").removeAttribute("inert");
+        }
+
+        function reloadLatestVersion() {
+          var url = new URL(window.location.href);
+          url.searchParams.set("_reload", String(Date.now()));
+          window.location.replace(url.toString());
+        }
+
+        function checkAppVersion() {
+          if (versionCheckPromise) return versionCheckPromise;
+          versionCheckPromise = (async function () {
+            try {
+              var versionUrl = new URL("version.json", document.baseURI);
+              versionUrl.searchParams.set("_", String(Date.now()));
+              var response = await fetch(versionUrl.toString(), { cache: "no-store" });
+              if (!response.ok) throw new Error("Version check returned HTTP " + response.status + ".");
+              var latest = await response.json();
+              if (!latest || latest.version !== APP_VERSION) {
+                showVersionGate("A newer version of this page is available. Reload to continue.");
+                return false;
+              }
+              hideVersionGate();
+              return true;
+            } catch (error) {
+              showVersionGate("Unable to verify this page is current. Check your connection, then retry.");
+              return false;
+            } finally {
+              versionCheckPromise = null;
+            }
+          }());
+          return versionCheckPromise;
+        }
+
+        async function ensureCurrentVersion() {
+          return await checkAppVersion();
+        }
+
+        showVersionGate("Checking this page version…");
+        document.getElementById("reloadLatestVersion").addEventListener("click", reloadLatestVersion);
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) checkAppVersion();
+        });
+        window.addEventListener("focus", checkAppVersion);
+        window.setInterval(checkAppVersion, 60000);
+        checkAppVersion();
+
         /* ============ SUPABASE SHARED DATABASE ============
            Paste your real values below (Supabase dashboard →
            Project Settings → API). The anon key is safe to
@@ -655,6 +730,7 @@
         }
 
         async function updatePlayerPin(playerId, digits) {
+          if (!(await ensureCurrentVersion())) return false;
           var attempts = [
             { phone_last4: digits },
             { phone_no: digits },
@@ -673,6 +749,7 @@
         }
 
         async function loadFromDb() {
+          if (!(await ensureCurrentVersion())) return false;
           var pr = await sb.from("players").select("*");
           var mr = await sb.from("matches").select("*").order("date", { ascending: true }).order("seq", { ascending: true });
           if (pr.error || mr.error) { showError("Couldn't load the club record — check your URL/key and tables."); return false; }
@@ -947,6 +1024,7 @@
           body.querySelectorAll("[data-delete-match]").forEach(function (btn) {
             btn.addEventListener("click", async function () {
               var id = btn.getAttribute("data-delete-match");
+              if (!(await ensureCurrentVersion())) return;
               var del = await sb.from("matches").delete().eq("id", id);
               if (del.error) { toast("Couldn't delete the match — " + del.error.message); return; }
               state.matches = state.matches.filter(function (m) { return m.id !== id; });
@@ -1088,6 +1166,7 @@
             official: official
           };
 
+          if (!(await ensureCurrentVersion())) return;
           var insert = await sb.from("matches").insert(match);
           if (insert.error) {
             showError("Couldn't save the match — " + insert.error.message);
@@ -1117,6 +1196,7 @@
           }
 
           var id = uid("p");
+          if (!(await ensureCurrentVersion())) return;
           var insert = await sb.from("players").insert({
             id: id,
             name: name,
@@ -1202,6 +1282,7 @@
             };
           });
 
+          if (!(await ensureCurrentVersion())) return;
           state.players = nextPlayers;
           state.matches = nextMatches;
           await sb.from("players").upsert(nextPlayers, { onConflict: "id" });
@@ -1280,6 +1361,7 @@
 
         async function init() {
           buildSetRows();
+          if (!(await ensureCurrentVersion())) return;
           try {
             var loginState = await loadFromDb();
             if (loginState) {
