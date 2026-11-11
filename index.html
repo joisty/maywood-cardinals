@@ -60,6 +60,67 @@
       }
       .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 56px; }
 
+      .auth-screen {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(160deg, rgba(16, 22, 15, 0.8), rgba(19, 39, 29, 0.84));
+        z-index: 50;
+        padding: 20px;
+      }
+      .auth-screen.hidden {
+        display: none;
+      }
+      .auth-card {
+        width: min(100%, 420px);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        padding: 24px 22px 18px;
+      }
+      .auth-card h2 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        letter-spacing: -.02em;
+      }
+      .auth-card p {
+        margin: 0 0 18px;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+      .auth-error {
+        display: none;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--loss) 12%, var(--surface));
+        color: var(--loss);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .auth-error.show { display: block; }
+      .app-shell.hidden { display: none; }
+      .login-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .logout-button {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .logout-button:hover { border-color: var(--ink-soft); }
+
       /* ---------- Header / scoreboard strip ---------- */
       header.masthead {
         background: linear-gradient(160deg, var(--court) 0%, var(--court-deep) 100%);
@@ -134,7 +195,6 @@
 
       /* ---------- Standings table ---------- */
       .table-scroll { overflow-x: auto; }
-      /* limit height to roughly 10 rows and add scrollbar */
       .table-scroll, .log-scroll { max-height: 420px; overflow: auto; }
       table.standings { width: 100%; border-collapse: collapse; font-size: 15px; }
       table.standings th {
@@ -214,7 +274,7 @@
         margin: 14px 0 6px;
       }
       label.field-label:first-of-type { margin-top: 0; }
-      select, input[type="text"], input[type="date"], input[type="number"] {
+      select, input[type="text"], input[type="date"], input[type="number"], input[type="password"] {
         width: 100%;
         min-width: 0;
         max-width: 100%;
@@ -375,94 +435,115 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body>
-    <div class="wrap">
-      <header class="masthead">
-        <h1>Tennis Club ELO Tracker</h1>
-        <p class="sub">Doubles ladder for the club — record a result and every player's rating updates on the spot.</p>
-        <div class="stat-strip">
-          <div class="stat"><b id="statPlayers">0</b><span>Players</span></div>
-          <div class="stat"><b id="statMatches">0</b><span>Matches</span></div>
-          <div class="stat"><b id="statOfficial">0</b><span>Official matches</span></div>
-          <div class="stat"><b id="statTop">—</b><span>Top rated</span></div>
+    <div id="authScreen" class="auth-screen">
+      <div class="auth-card">
+        <h2>Member login</h2>
+        <p>Choose your member name and enter your 4-digit PIN.</p>
+        <form id="loginForm" novalidate>
+          <label class="field-label" for="memberSelect">Member</label>
+          <select id="memberSelect"></select>
+          <label class="field-label" for="memberPin">PIN</label>
+          <input type="password" id="memberPin" inputmode="numeric" maxlength="4" autocomplete="one-time-code" placeholder="••••" />
+          <button type="submit" class="primary">Login</button>
+          <div class="auth-error" id="authError" role="alert"></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="appShell" class="app-shell hidden">
+      <div class="wrap">
+        <header class="masthead">
+          <div class="login-head">
+            <div></div>
+            <button type="button" class="logout-button" id="logoutBtn">Log out</button>
+          </div>
+          <h1>Tennis Club ELO Tracker</h1>
+          <p class="sub">Doubles ladder for the club — record a result and every player's rating updates on the spot.</p>
+          <div class="stat-strip">
+            <div class="stat"><b id="statPlayers">0</b><span>Players</span></div>
+            <div class="stat"><b id="statMatches">0</b><span>Matches</span></div>
+            <div class="stat"><b id="statOfficial">0</b><span>Official matches</span></div>
+            <div class="stat"><b id="statTop">—</b><span>Top rated</span></div>
+          </div>
+        </header>
+
+        <div class="grid">
+          <section class="panel" aria-labelledby="standingsH">
+            <h2 id="standingsH">Standings</h2>
+            <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
+            <div id="standingsBody"></div>
+            <div class="rating-toggle" role="radiogroup" aria-label="Rating display selection">
+              <label class="toggle-option"><input type="radio" name="ratingMode" value="ratings" checked /> Ratings</label>
+              <label class="toggle-option"><input type="radio" name="ratingMode" value="raw" /> Raw ELO</label>
+            </div>
+            <div class="toggle-note">Temporary display: Ratings = Raw ELO + (2 × played matches).</div>
+          </section>
+
+          <section class="panel" aria-labelledby="recordH">
+            <h2 id="recordH">Record a match</h2>
+            <p class="hint">Pick the two pairs and enter the set score — matches are a single set, the winner is worked out automatically, and a tied score (like 5–5) counts as a draw.</p>
+            <form id="matchForm" novalidate>
+              <label class="field-label" for="matchDate">Date</label>
+              <input type="date" id="matchDate" />
+              <div style="height:14px"></div>
+              <div class="team-box a">
+                <span class="team-tag">Team A</span>
+                <label class="field-label" for="selA1">Player 1</label>
+                <select id="selA1"></select>
+                <label class="field-label" for="selA2">Player 2</label>
+                <select id="selA2"></select>
+              </div>
+              <div class="vs-row">VS</div>
+              <div class="team-box b">
+                <span class="team-tag">Team B</span>
+                <label class="field-label" for="selB1">Player 1</label>
+                <select id="selB1"></select>
+                <label class="field-label" for="selB2">Player 2</label>
+                <select id="selB2"></select>
+              </div>
+              <label class="field-label">Set score (games)</label>
+              <div class="sets-grid" id="setsGrid"></div>
+              <label class="check-row" for="officialCheck">
+                <input type="checkbox" id="officialCheck" />
+                <span>Official competition match <span class="check-note">— counts double toward ELO</span></span>
+              </label>
+              <div class="form-error" id="formError" role="alert"></div>
+              <button type="submit" class="primary" id="saveMatchBtn">Save match &amp; update ELO</button>
+              <button type="button" class="ghost" id="predictBtn" style="margin-top:8px">Predict match</button>
+            </form>
+          </section>
         </div>
-      </header>
 
-      <div class="grid">
-        <section class="panel" aria-labelledby="standingsH">
-          <h2 id="standingsH">Standings</h2>
-          <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
-          <div id="standingsBody"></div>
-          <div class="rating-toggle" role="radiogroup" aria-label="Rating display selection">
-            <label class="toggle-option"><input type="radio" name="ratingMode" value="ratings" checked /> Ratings</label>
-            <label class="toggle-option"><input type="radio" name="ratingMode" value="raw" /> Raw ELO</label>
-          </div>
-          <div class="toggle-note">Temporary display: Ratings = Raw ELO + (2 × played matches).</div>
+        <section class="panel" aria-labelledby="logH">
+          <h2 id="logH">Match log</h2>
+          <p class="hint">Newest first. Deleting a match recalculates every rating as if it never happened.</p>
+          <div id="logBody" class="log-scroll"></div>
         </section>
 
-        <section class="panel" aria-labelledby="recordH">
-          <h2 id="recordH">Record a match</h2>
-          <p class="hint">Pick the two pairs and enter the set score — matches are a single set, the winner is worked out automatically, and a tied score (like 5–5) counts as a draw.</p>
-          <form id="matchForm" novalidate>
-            <label class="field-label" for="matchDate">Date</label>
-            <input type="date" id="matchDate" />
-            <div style="height:14px"></div>
-            <div class="team-box a">
-              <span class="team-tag">Team A</span>
-              <label class="field-label" for="selA1">Player 1</label>
-              <select id="selA1"></select>
-              <label class="field-label" for="selA2">Player 2</label>
-              <select id="selA2"></select>
+        <div class="grid">
+          <section class="panel" aria-labelledby="rosterH">
+            <h2 id="rosterH">Roster</h2>
+            <p class="hint">Add everyone who plays. Add players using the form — the full roster is hidden here to keep the UI compact.</p>
+            <form id="addPlayerForm" class="add-row">
+              <input type="text" id="newPlayerName" placeholder="Player name" autocomplete="off" maxlength="40" aria-label="New player name" />
+              <button type="submit">Add player</button>
+            </form>
+            <div id="rosterBody"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="toolsH">
+            <h2 id="toolsH">Club record file</h2>
+            <div class="tools-row">
+              <p>Download the roster and match log as one file to keep a backup or hand the record to another member — they can import it here to pick up the same standings.</p>
+              <button type="button" class="ghost" id="exportBtn">Export JSON</button>
+              <button type="button" class="ghost" id="importBtn">Import JSON</button>
+              <input type="file" id="importFile" accept="application/json,.json" />
             </div>
-            <div class="vs-row">VS</div>
-            <div class="team-box b">
-              <span class="team-tag">Team B</span>
-              <label class="field-label" for="selB1">Player 1</label>
-              <select id="selB1"></select>
-              <label class="field-label" for="selB2">Player 2</label>
-              <select id="selB2"></select>
-            </div>
-            <label class="field-label">Set score (games)</label>
-            <div class="sets-grid" id="setsGrid"></div>
-            <label class="check-row" for="officialCheck">
-              <input type="checkbox" id="officialCheck" />
-              <span>Official competition match <span class="check-note">— counts double toward ELO</span></span>
-            </label>
-            <div class="form-error" id="formError" role="alert"></div>
-            <button type="submit" class="primary" id="saveMatchBtn">Save match &amp; update ELO</button>
-            <button type="button" class="ghost" id="predictBtn" style="margin-top:8px">Predict match</button>
-          </form>
-        </section>
+          </section>
+        </div>
+
+        <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied score is treated as a draw.</footer>
       </div>
-
-      <section class="panel" aria-labelledby="logH">
-        <h2 id="logH">Match log</h2>
-        <p class="hint">Newest first. Deleting a match recalculates every rating as if it never happened.</p>
-        <div id="logBody" class="log-scroll"></div>
-      </section>
-
-      <div class="grid">
-        <section class="panel" aria-labelledby="rosterH">
-          <h2 id="rosterH">Roster</h2>
-          <p class="hint">Add everyone who plays. Add players using the form — the full roster is hidden here to keep the UI compact.</p>
-          <form id="addPlayerForm" class="add-row">
-            <input type="text" id="newPlayerName" placeholder="Player name" autocomplete="off" maxlength="40" aria-label="New player name" />
-            <button type="submit">Add player</button>
-          </form>
-          <div id="rosterBody"></div>
-        </section>
-
-        <section class="panel" aria-labelledby="toolsH">
-          <h2 id="toolsH">Club record file</h2>
-          <div class="tools-row">
-            <p>Download the roster and match log as one file to keep a backup or hand the record to another member — they can import it here to pick up the same standings.</p>
-            <button type="button" class="ghost" id="exportBtn">Export JSON</button>
-            <button type="button" class="ghost" id="importBtn">Import JSON</button>
-            <input type="file" id="importFile" accept="application/json,.json" />
-          </div>
-        </section>
-      </div>
-
-      <footer class="foot">ELO: expected score from the two pairs' average ratings · new rating = old + 32 × (result − expected), with the update doubled for official competition matches. A tied s[...]
     </div>
 
     <div class="toast" id="toast" role="status"></div>
@@ -475,7 +556,7 @@
         var K = 32;
         var ratingMode = "ratings";
 
-        var state = { players: [], matches: [] };
+        var state = { players: [], matches: [], currentMemberId: null };
         var seq = 0;
 
         /* ============ SUPABASE SHARED DATABASE ============
@@ -487,20 +568,133 @@
         var SUPABASE_ANON_KEY = "sb_publishable_ZmpDoKrmI4JAVS8T6p6q4w_DJeEFTOD";
         var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Set this to a unique identifier for the manager (owner). The manager is allowed to export/import.
-        // Replace with your manager email or username as appropriate.
         var MANAGER_EMAIL = "joisty";
         var isManager = false;
+
+        function normalizePinValue(value) {
+          if (value === null || value === undefined || value === "") return null;
+          var text = String(value).trim();
+          return text === "" ? null : text;
+        }
+
+        function readPlayerPhone(player) {
+          if (!player) return null;
+          return normalizePinValue(
+            player.phone_last4 !== undefined ? player.phone_last4 :
+            player.phone_no !== undefined ? player.phone_no :
+            player["phone no"]
+          );
+        }
+
+        function getMemberPlayers() {
+          return state.players.filter(function (p) { return !!p.member; });
+        }
+
+        function playerById(id) {
+          for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].id === id) return state.players[i];
+          }
+          return null;
+        }
+
+        function setMemberSession(memberId) {
+          state.currentMemberId = memberId;
+          if (memberId) {
+            try { localStorage.setItem("club_member_session", memberId); } catch (e) {}
+          } else {
+            try { localStorage.removeItem("club_member_session"); } catch (e) {}
+          }
+          syncAuthView();
+        }
+
+        function syncAuthView() {
+          var authScreen = document.getElementById("authScreen");
+          var appShell = document.getElementById("appShell");
+          if (!authScreen || !appShell) return;
+          if (state.currentMemberId) {
+            authScreen.classList.add("hidden");
+            appShell.classList.remove("hidden");
+          } else {
+            authScreen.classList.remove("hidden");
+            appShell.classList.add("hidden");
+          }
+        }
+
+        function getVisiblePlayerName(player, rankIndex) {
+          if (!state.currentMemberId) return "*****";
+          if (rankIndex < 10 || player.id === state.currentMemberId) return player.name;
+          return "*****";
+        }
+
+        function renderLoginOptions() {
+          var sel = document.getElementById("memberSelect");
+          if (!sel) return;
+          var members = getMemberPlayers();
+          sel.innerHTML = '<option value="">— choose your name ��</option>' + members.map(function (p) {
+            return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
+          }).join("");
+          if (state.currentMemberId && playerById(state.currentMemberId)) {
+            sel.value = state.currentMemberId;
+          }
+        }
+
+        function authError(msg) {
+          var el = document.getElementById("authError");
+          if (!el) return;
+          el.textContent = msg;
+          el.classList.add("show");
+        }
+
+        function clearAuthError() {
+          var el = document.getElementById("authError");
+          if (!el) return;
+          el.textContent = "";
+          el.classList.remove("show");
+        }
+
+        async function updatePlayerPin(playerId, digits) {
+          var attempts = [
+            { phone_last4: digits },
+            { phone_no: digits },
+            { "phone no": digits }
+          ];
+          for (var i = 0; i < attempts.length; i++) {
+            var res = await sb.from("players").update(attempts[i]).eq("id", playerId);
+            if (!res.error) return true;
+            var msg = String(res.error && res.error.message ? res.error.message : "");
+            var isMissingColumn = /column .* does not exist|does not exist/i.test(msg);
+            if (!isMissingColumn) {
+              throw new Error(msg || "Failed to update PIN");
+            }
+          }
+          return false;
+        }
 
         async function loadFromDb() {
           var pr = await sb.from("players").select("*");
           var mr = await sb.from("matches").select("*").order("date", { ascending: true }).order("seq", { ascending: true });
           if (pr.error || mr.error) { showError("Couldn't load the club record — check your URL/key and tables."); return false; }
-          state.players = pr.data.map(function (p) { return { id: p.id, name: p.name }; });
+          state.players = pr.data.map(function (p) {
+            return {
+              id: p.id,
+              name: p.name,
+              member: !!p.member,
+              phone_last4: readPlayerPhone(p)
+            };
+          });
           state.matches = mr.data.map(function (m) {
             return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: !!m.official };
           });
-          seq = state.players.length + state.matches.length; // keep uid() unique across members
+          seq = state.players.length + state.matches.length;
+
+          var savedMember = null;
+          try { savedMember = localStorage.getItem("club_member_session"); } catch (e) {}
+          if (savedMember && playerById(savedMember)) {
+            state.currentMemberId = savedMember;
+          } else {
+            state.currentMemberId = null;
+          }
+          renderLoginOptions();
           return true;
         }
 
@@ -523,13 +717,6 @@
           });
         }
 
-        function playerById(id) {
-          for (var i = 0; i < state.players.length; i++) {
-            if (state.players[i].id === id) return state.players[i];
-          }
-          return null;
-        }
-
         function setsWinner(m) {
           var aSets = 0, bSets = 0, aGames = 0, bGames = 0;
           m.sets.forEach(function (s) {
@@ -541,8 +728,6 @@
           return "Draw";
         }
 
-        // Recompute every rating and stat from scratch, oldest match first,
-        // so edits and deletions always leave a consistent ladder.
         function compute() {
           var ratings = {}, stats = {};
           state.players.forEach(function (p) {
@@ -567,9 +752,7 @@
             ratings[m.a1] += dA; ratings[m.a2] += dA;
             ratings[m.b1] += dB; ratings[m.b2] += dB;
 
-            // Track per-player stats including games won/lost (sum of set games for their team)
             m.sets.forEach(function (s) {
-              // s[0] == Team A games, s[1] == Team B games for this set
               [m.a1, m.a2].forEach(function (id) { stats[id].gamesWon += s[0]; stats[id].gamesLost += s[1]; });
               [m.b1, m.b2].forEach(function (id) { stats[id].gamesWon += s[1]; stats[id].gamesLost += s[0]; });
             });
@@ -630,8 +813,6 @@
           toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2600);
         }
 
-        /* ---------------- Rendering ---------------- */
-
         function render() {
           var c = compute();
           renderHeader(c);
@@ -639,6 +820,7 @@
           renderLog(c);
           renderRoster(c);
           renderSelects();
+          syncAuthView();
         }
 
         function renderHeader(c) {
@@ -647,12 +829,19 @@
           var official = 0;
           state.matches.forEach(function (m) { if (m.official) official++; });
           document.getElementById("statOfficial").textContent = official;
-          var top = "—";
-          var best = -Infinity;
-          state.players.forEach(function (p) {
-            var score = displayRating(c, p.id);
-            if (c.stats[p.id].played > 0 && score > best) { best = score; top = p.name; }
+
+          var sorted = state.players.slice().sort(function (x, y) {
+            var a = displayRating(c, x.id);
+            var b = displayRating(c, y.id);
+            if (b !== a) return b - a;
+            if (c.stats[y.id].wins !== c.stats[x.id].wins) return c.stats[y.id].wins - c.stats[x.id].wins;
+            return x.name.localeCompare(y.name);
           });
+          var top = "—";
+          if (sorted.length && c.stats[sorted[0].id].played > 0) {
+            var topPlayer = sorted[0];
+            top = getVisiblePlayerName(topPlayer, 0);
+          }
           document.getElementById("statTop").textContent = top;
           document.getElementById("statTop").style.fontSize = top === "—" ? "" : "17px";
         }
@@ -692,7 +881,7 @@
               : '<span class="muted">—</span>';
             html += '<tr' + (i === 0 && s.played > 0 ? ' class="top"' : "") + ">" +
               "<td class=\"rank\">" + (i + 1) + "</td>" +
-              '<td class="player-name">' + esc(p.name) + "</td>" +
+              '<td class="player-name">' + esc(getVisiblePlayerName(p, i)) + "</td>" +
               '<td class="elo num">' + displayVal + "</td>" +
               '<td class="num col-hide-sm">' + s.played + "</td>" +
               '<td class="num">' + s.wins + "</td>" +
@@ -736,7 +925,6 @@
                 '<span class="delta down">' + fmtDelta(dLose) + "</span>";
             }
 
-            // Only show the Delete button for matches that happened today (live day).
             var deleteHtml = isLiveDate(m.date)
               ? '<span class="log-actions"><button type="button" class="danger-ghost" data-delete-match="' + m.id + '">Delete</button></span>'
               : '';
@@ -766,7 +954,6 @@
 
         function renderRoster(c) {
           var body = document.getElementById("rosterBody");
-          // Keep roster compact: don't show the full player list here. Provide a small note instead.
           body.innerHTML = '<div class="empty" style="margin-top:14px"><b>Roster hidden.</b><br/>Add players using the form above.</div>';
         }
 
@@ -783,8 +970,6 @@
             sel.innerHTML = html;
             if (prev && playerById(prev)) sel.value = prev;
           });
-          // Resolve duplicates/empties left by preserved picks: walk the four
-          // slots in order and give each the first player not already used.
           var used = {};
           sels.forEach(function (sel) {
             if (sel.value && !used[sel.value]) { used[sel.value] = true; return; }
@@ -797,8 +982,6 @@
           });
           document.getElementById("saveMatchBtn").disabled = state.players.length < 4;
         }
-
-        /* ---------------- Match form ---------------- */
 
         function buildSetRows() {
           var grid = document.getElementById("setsGrid");
@@ -819,8 +1002,6 @@
           document.getElementById("formError").classList.remove("show");
         }
 
-        /* ---------------- Predict match (just for fun) ---------------- */
-
         document.getElementById("predictBtn").addEventListener("click", function () {
           clearError();
           var a1 = document.getElementById("selA1").value;
@@ -837,9 +1018,8 @@
           var ad = Math.abs(diff);
           var ga, gb;
           if (ad < 40) {
-            ga = 5; gb = 5; // too close to call — predicted draw
+            ga = 5; gb = 5;
           } else {
-            // ~90 ELO of team-average gap ≈ one game of margin
             var loserGames = Math.max(0, Math.min(4, Math.round(5 - ad / 90)));
             if (diff > 0) { ga = 6; gb = loserGames; } else { ga = loserGames; gb = 6; }
           }
@@ -865,7 +1045,6 @@
           if (new Set(picked).size !== 4) { showError("Each player can only appear once in a match."); return; }
 
           var date = document.getElementById("matchDate").value;
-          // Enforce live-day-only entry: date must be today's date.
           if (date !== todayIso()) { showError("Matches can only be recorded for today's date. Contact the manager to record or edit older matches."); return; }
 
           var ga = document.getElementById("set1A").value;
@@ -874,7 +1053,6 @@
           var na = parseInt(ga, 10), nb = parseInt(gb, 10);
           if (isNaN(na) || isNaN(nb) || na < 0 || nb < 0 || na > 30 || nb > 30) { showError("Set games must be between 0 and 30."); return; }
           var sets = [[na, nb]];
-          var isDraw = na === nb;
 
           var official = document.getElementById("officialCheck").checked;
           var match = { id: uid("m"), seq: state.matches.length ? Math.max.apply(null, state.matches.map(function (m) { return m.seq; })) + 1 : 1, date: date, a1: a1, a2: a2, b1: b1, b2: b2, sets: sets, official: official };
@@ -901,8 +1079,6 @@
           }
         });
 
-        /* ---------------- Roster form ---------------- */
-
         document.getElementById("addPlayerForm").addEventListener("submit", async function (ev) {
           ev.preventDefault();
           var input = document.getElementById("newPlayerName");
@@ -911,15 +1087,13 @@
           var dupe = state.players.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); });
           if (dupe) { toast("“" + name + "” is already on the roster."); return; }
           var pid = uid("p");
-          var pins = await sb.from("players").insert({ id: pid, name: name });
+          var pins = await sb.from("players").insert({ id: pid, name: name, member: false, phone_last4: null });
           if (pins.error) { toast("Couldn't add player — " + pins.error.message); return; }
-          state.players.push({ id: pid, name: name });
+          state.players.push({ id: pid, name: name, member: false, phone_last4: null });
           input.value = "";
           render();
           toast(name + " added to the roster.");
         });
-
-        /* ---------------- Export / import ---------------- */
 
         document.getElementById("exportBtn").addEventListener("click", function () {
           if (!isManager) { toast("Only the manager may export the club record."); return; }
@@ -945,9 +1119,9 @@
         });
 
         var importFile = document.getElementById("importFile");
-        document.getElementById("importBtn").addEventListener("click", function () { 
+        document.getElementById("importBtn").addEventListener("click", function () {
           if (!isManager) { toast("Only the manager may import the club record."); return; }
-          importFile.click(); 
+          importFile.click();
         });
         importFile.addEventListener("change", function () {
           if (!isManager) { toast("Only the manager may import the club record."); importFile.value = ""; return; }
@@ -959,16 +1133,13 @@
             try {
               var data = JSON.parse(String(reader.result));
               if (!data || !Array.isArray(data.players) || !Array.isArray(data.matches)) throw new Error("shape");
-              // Imported values are untrusted: never let imported ids or
-              // dates reach the page. Regenerate every id (remapping match
-              // references) and accept only real YYYY-MM-DD dates.
               var idMap = {};
               var players = [];
               data.players.forEach(function (p) {
                 if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !p.name.trim()) return;
                 var fresh = uid("p");
                 idMap[p.id] = fresh;
-                players.push({ id: fresh, name: p.name.slice(0, 60) });
+                players.push({ id: fresh, name: p.name.slice(0, 60), member: !!p.member, phone_last4: normalizePinValue(p.phone_last4) });
               });
               function validDate(s) {
                 if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -993,7 +1164,7 @@
                 if (!setsWinner(clean)) return;
                 matches.push(clean);
               });
-              var pins = await sb.from("players").upsert(players.map(function (p) { return { id: p.id, name: p.name }; }), { onConflict: "id" });
+              var pins = await sb.from("players").upsert(players.map(function (p) { return { id: p.id, name: p.name, member: p.member, phone_last4: p.phone_last4 }; }), { onConflict: "id" });
               var mins = await sb.from("matches").upsert(matches.map(function (m) {
                 return { id: m.id, seq: m.seq, date: m.date, a1: m.a1, a2: m.a2, b1: m.b1, b2: m.b2, sets: m.sets, official: m.official };
               }), { onConflict: "id" });
@@ -1014,29 +1185,78 @@
           });
         });
 
-        /* ---------------- Init ---------------- */
+        function showLoginSelector() {
+          renderLoginOptions();
+          clearAuthError();
+          syncAuthView();
+        }
+
+        document.getElementById("loginForm").addEventListener("submit", async function (ev) {
+          ev.preventDefault();
+          clearAuthError();
+          var memberId = document.getElementById("memberSelect").value;
+          var pin = document.getElementById("memberPin").value.trim();
+          if (!memberId) { authError("Select your member name."); return; }
+          if (!/^\d{4}$/.test(pin)) { authError("Enter a valid 4-digit PIN."); return; }
+
+          var player = playerById(memberId);
+          if (!player) { authError("Member not found."); return; }
+          var stored = readPlayerPhone(player);
+
+          if (!stored) {
+            if (pin !== "1234") {
+              authError("This member has no saved PIN. Use 1234 to set your PIN.");
+              return;
+            }
+            var newPin = prompt("This member has no saved PIN. Enter the real 4-digit PIN to save for future logins.", "");
+            if (!/^\d{4}$/.test(String(newPin || ""))) {
+              authError("Please enter a valid 4-digit PIN.");
+              return;
+            }
+            try {
+              await updatePlayerPin(player.id, String(newPin));
+              setMemberSession(player.id);
+              document.getElementById("memberPin").value = "";
+              toast(player.name + " logged in.");
+            } catch (e) {
+              authError(e.message || "Couldn't save this PIN.");
+            }
+            return;
+          }
+
+          if (String(stored) !== pin) {
+            authError("Incorrect PIN for this member.");
+            return;
+          }
+
+          setMemberSession(player.id);
+          document.getElementById("memberPin").value = "";
+          toast(player.name + " logged in.");
+        });
+
+        document.getElementById("logoutBtn").addEventListener("click", function () {
+          setMemberSession(null);
+          document.getElementById("memberPin").value = "";
+          showLoginSelector();
+          toast("Logged out.");
+        });
 
         (async function init() {
           var matchDateInput = document.getElementById("matchDate");
           matchDateInput.value = todayIso();
-          // Make the match date fixed to today's date — only manager may change older records.
           matchDateInput.readOnly = true;
           matchDateInput.disabled = true;
           matchDateInput.title = "Date fixed to today — contact the manager to record or change older matches.";
 
           buildSetRows();
 
-          // Determine whether the current logged-in user is the manager.
           try {
             var userResp = await sb.auth.getUser();
             var user = userResp && userResp.data && userResp.data.user ? userResp.data.user : null;
             if (user && user.email && user.email.toLowerCase().indexOf(MANAGER_EMAIL.toLowerCase()) !== -1) {
               isManager = true;
             }
-          } catch (e) {
-            // ignore - treat as not manager
-          }
-          // Hide export/import controls for non-managers
+          } catch (e) {}
           if (!isManager) {
             var eb = document.getElementById('exportBtn'); if (eb) eb.style.display = 'none';
             var ib = document.getElementById('importBtn'); if (ib) ib.style.display = 'none';
@@ -1047,8 +1267,11 @@
             showError("Add your Supabase Project URL and anon key at the top of this file to connect the shared club record.");
             return;
           }
+
           if (await loadFromDb()) {
             render();
+            showLoginSelector();
+            syncAuthView();
             sb.channel("club-record")
               .on("postgres_changes", { event: "*", schema: "public", table: "players" }, function () { refreshFromDb(); })
               .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, function () { refreshFromDb(); })
