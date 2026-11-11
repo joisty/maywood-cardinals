@@ -1090,6 +1090,14 @@
           el.classList.remove("show");
         }
 
+        document.querySelectorAll('input[name="ratingMode"]').forEach(function (input) {
+          input.addEventListener("change", function () {
+            if (!this.checked) return;
+            ratingMode = this.value === "raw" ? "raw" : "ratings";
+            render();
+          });
+        });
+
         document.getElementById("predictBtn").addEventListener("click", function () {
           clearError();
           var a1 = document.getElementById("selA1").value;
@@ -1362,7 +1370,7 @@
 
           state.currentMemberId = memberId;
           try { localStorage.setItem("club_member_session", memberId); } catch (e) {}
-          syncAuthView();
+          render();
           toast(player.name + " logged in.");
         });
 
