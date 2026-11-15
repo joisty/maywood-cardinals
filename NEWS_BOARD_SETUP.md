@@ -13,3 +13,7 @@ The article body is displayed as plain text with line breaks preserved. The boar
 Comments are publicly readable and writable. Names are labels only: a logged-in member's current name is prefilled, but anyone can edit it or post as `익명`. Delete unwanted comments from the Supabase Table Editor.
 
 This version has no AI connection or scheduled publishing. AI-written Korean stories can be pasted into `title_ko` and `body_ko` manually.
+
+## Page-load counter
+
+Run [supabase/page_visit_counter.sql](supabase/page_visit_counter.sql) once in the Supabase SQL Editor. The site then increments today's and all-time counts on every full page load. Refreshes count again; switching between the rankings and news views inside the app does not. The daily count uses America/Los_Angeles time.
