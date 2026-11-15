@@ -431,6 +431,24 @@
         .toast { transition: none; }
       }
       footer.foot { margin-top: 26px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+      .news-page.hidden { display: none; }
+      .news-wrap { max-width: 900px; }
+      .news-masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 0 20px; }
+      .news-masthead h1 { margin: 0; font-size: clamp(28px, 5vw, 42px); }
+      .news-masthead p { margin: 6px 0 0; color: var(--ink-soft); }
+      .news-status { margin: 12px 0; color: var(--ink-soft); }
+      .news-article { margin: 0 0 16px; }
+      .news-article h2 { margin: 0; }
+      .news-date, .news-comment-date { color: var(--ink-soft); font-size: 13px; }
+      .news-body { margin-top: 14px; white-space: pre-wrap; line-height: 1.75; }
+      .news-comments { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+      .news-comments h3 { margin: 0 0 12px; }
+      .news-comment { padding: 12px 0; border-bottom: 1px solid var(--line); }
+      .news-comment-head { display: flex; justify-content: space-between; gap: 12px; }
+      .news-comment p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .news-comment-form { display: grid; gap: 10px; margin-top: 16px; }
+      .news-comment-form textarea { min-height: 96px; resize: vertical; }
+      .news-login-link { width: 100%; margin-top: 12px; }
       .version-gate { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.72); }
       .version-gate[hidden] { display: none; }
       .version-gate-card { width: min(100%, 430px); padding: 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
@@ -459,6 +477,7 @@
           <button type="submit" class="primary">Login</button>
           <div class="auth-error" id="authError" role="alert"></div>
         </form>
+        <button type="button" class="ghost news-login-link" id="viewNewsFromLogin">Read the news board</button>
       </div>
     </div>
 
@@ -466,7 +485,7 @@
       <div class="wrap">
         <header class="masthead">
           <div class="login-head">
-            <div></div>
+            <button type="button" class="ghost" id="viewNewsFromApp">News board</button>
             <button type="button" class="logout-button" id="logoutBtn">Log out</button>
           </div>
           <h1>Tennis Club ELO Tracker</h1>
@@ -558,6 +577,20 @@
       </div>
     </div>
 
+    <div id="newsPage" class="news-page hidden">
+      <div class="wrap news-wrap">
+        <header class="news-masthead">
+          <div>
+            <h1>Maywood 경기 뉴스</h1>
+            <p>하루의 경기 결과를 바탕으로 만든 클럽 이야기</p>
+          </div>
+          <button type="button" class="ghost" id="backToRankings">Rankings</button>
+        </header>
+        <div id="newsStatus" class="news-status" role="status"></div>
+        <div id="newsList"></div>
+      </div>
+    </div>
+
     <div class="toast" id="toast" role="status"></div>
 
     <script>
@@ -567,12 +600,22 @@
         var START_RATING = 1500;
         var K = 32;
         var ratingMode = "ratings";
+        var activePage = "rankings";
 
-        var state = { players: [], matches: [], currentMemberId: null };
+        var state = {
+          players: [],
+          matches: [],
+          currentMemberId: null,
+          newsItems: [],
+          activeNewsId: null,
+          newsComments: [],
+          newsCommentsLoading: false,
+          newsCommentsError: null
+        };
         var seq = 0;
 
         // Bump this value and version.json together for every published page update.
-        var APP_VERSION = "2026-11-11.2";
+        var APP_VERSION = "2026-11-14.2";
         var versionGate = document.getElementById("versionGate");
         var versionGateMessage = document.getElementById("versionGateMessage");
         var versionCheckPromise = null;
@@ -582,12 +625,14 @@
           versionGate.hidden = false;
           document.getElementById("authScreen").setAttribute("inert", "");
           document.getElementById("appShell").setAttribute("inert", "");
+          document.getElementById("newsPage").setAttribute("inert", "");
         }
 
         function hideVersionGate() {
           versionGate.hidden = true;
           document.getElementById("authScreen").removeAttribute("inert");
           document.getElementById("appShell").removeAttribute("inert");
+          document.getElementById("newsPage").removeAttribute("inert");
         }
 
         function reloadLatestVersion() {
@@ -687,7 +732,15 @@
         function syncAuthView() {
           var authScreen = document.getElementById("authScreen");
           var appShell = document.getElementById("appShell");
-          if (!authScreen || !appShell) return;
+          var newsPage = document.getElementById("newsPage");
+          if (!authScreen || !appShell || !newsPage) return;
+          if (activePage === "news") {
+            authScreen.classList.add("hidden");
+            appShell.classList.add("hidden");
+            newsPage.classList.remove("hidden");
+            return;
+          }
+          newsPage.classList.add("hidden");
           if (state.currentMemberId) {
             authScreen.classList.add("hidden");
             appShell.classList.remove("hidden");
@@ -1378,6 +1431,238 @@
           renderLoginOptions();
           syncAuthView();
           toast("Logged out.");
+        });
+
+        function showNewsPage() {
+          activePage = "news";
+          syncAuthView();
+          loadNews();
+        }
+
+        function showRankingsPage() {
+          activePage = "rankings";
+          syncAuthView();
+          if (state.currentMemberId) render();
+        }
+
+        function newsDateLabel(value) {
+          var date = new Date(String(value || "") + "T12:00:00");
+          return Number.isNaN(date.getTime())
+            ? String(value || "")
+            : date.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+        }
+
+        function newsTextElement(tag, className, text) {
+          var element = document.createElement(tag);
+          if (className) element.className = className;
+          element.textContent = text || "";
+          return element;
+        }
+
+        async function loadNews() {
+          if (!(await ensureCurrentVersion())) return;
+          var status = document.getElementById("newsStatus");
+          var list = document.getElementById("newsList");
+          status.textContent = "뉴스를 불러오는 중…";
+          list.textContent = "";
+          try {
+            var result = await sb.from("news")
+              .select("id,game_date,title_ko,body_ko,created_at")
+              .order("game_date", { ascending: false })
+              .order("created_at", { ascending: false })
+              .limit(100);
+            if (result.error) {
+              status.textContent = "뉴스를 불러오지 못했습니다. Supabase 설정을 확인해 주세요.";
+              return;
+            }
+            state.newsItems = result.data || [];
+            if (state.activeNewsId && !state.newsItems.some(function (item) {
+              return String(item.id) === String(state.activeNewsId);
+            })) {
+              state.activeNewsId = null;
+            }
+            status.textContent = state.newsItems.length ? "" : "아직 게시된 뉴스가 없습니다.";
+            renderNewsBoard();
+          } catch (error) {
+            status.textContent = "뉴스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+          }
+        }
+
+        async function loadNewsComments(newsId) {
+          if (!(await ensureCurrentVersion())) return;
+          state.newsCommentsLoading = true;
+          state.newsCommentsError = null;
+          state.newsComments = [];
+          renderNewsBoard();
+          try {
+            var result = await sb.from("news_comments")
+              .select("id,display_name,body,created_at")
+              .eq("news_id", newsId)
+              .order("created_at", { ascending: true })
+              .limit(300);
+            state.newsCommentsLoading = false;
+            if (result.error) {
+              state.newsCommentsError = "댓글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+            } else {
+              state.newsComments = result.data || [];
+            }
+            renderNewsBoard();
+          } catch (error) {
+            state.newsCommentsLoading = false;
+            state.newsCommentsError = "댓글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+            renderNewsBoard();
+          }
+        }
+
+        function renderNewsBoard() {
+          var list = document.getElementById("newsList");
+          if (!list) return;
+          list.textContent = "";
+
+          state.newsItems.forEach(function (item) {
+            var article = document.createElement("article");
+            article.className = "panel news-article";
+
+            var heading = document.createElement("div");
+            heading.className = "news-comment-head";
+            var title = newsTextElement("h2", "", item.title_ko);
+            var date = newsTextElement("time", "news-date", newsDateLabel(item.game_date));
+            heading.appendChild(title);
+            heading.appendChild(date);
+            article.appendChild(heading);
+
+            article.appendChild(newsTextElement("div", "news-body", item.body_ko));
+
+            var commentsButton = newsTextElement(
+              "button",
+              "ghost",
+              String(state.activeNewsId) === String(item.id) ? "댓글 숨기기" : "댓글 보기 / 작성"
+            );
+            commentsButton.type = "button";
+            commentsButton.setAttribute("data-news-comments", String(item.id));
+            commentsButton.style.marginTop = "16px";
+            article.appendChild(commentsButton);
+
+            if (String(state.activeNewsId) === String(item.id)) {
+              appendNewsComments(article, item);
+            }
+            list.appendChild(article);
+          });
+        }
+
+        function appendNewsComments(article, item) {
+          var section = document.createElement("section");
+          section.className = "news-comments";
+          section.appendChild(newsTextElement("h3", "", "댓글"));
+
+          if (state.newsCommentsLoading) {
+            section.appendChild(newsTextElement("p", "news-date", "댓글을 불러오는 중…"));
+          } else if (state.newsCommentsError) {
+            section.appendChild(newsTextElement("p", "news-date", state.newsCommentsError));
+          } else if (!state.newsComments.length) {
+            section.appendChild(newsTextElement("p", "news-date", "첫 댓글을 남겨 보세요."));
+          } else {
+            state.newsComments.forEach(function (comment) {
+              var row = document.createElement("div");
+              row.className = "news-comment";
+              var head = document.createElement("div");
+              head.className = "news-comment-head";
+              head.appendChild(newsTextElement("strong", "", comment.display_name || "익명"));
+              var created = new Date(comment.created_at);
+              head.appendChild(newsTextElement(
+                "time",
+                "news-comment-date",
+                Number.isNaN(created.getTime()) ? "" : created.toLocaleString("ko-KR")
+              ));
+              row.appendChild(head);
+              row.appendChild(newsTextElement("p", "", comment.body));
+              section.appendChild(row);
+            });
+          }
+
+          var form = document.createElement("form");
+          form.className = "news-comment-form";
+          form.setAttribute("data-news-comment-form", String(item.id));
+
+          var member = state.currentMemberId ? playerById(state.currentMemberId) : null;
+          var nameInput = document.createElement("input");
+          nameInput.type = "text";
+          nameInput.name = "display_name";
+          nameInput.maxLength = 80;
+          nameInput.placeholder = "이름 (선택)";
+          nameInput.setAttribute("aria-label", "댓글 이름 (선택)");
+          nameInput.value = member ? member.name : "";
+          form.appendChild(nameInput);
+
+          var bodyInput = document.createElement("textarea");
+          bodyInput.name = "body";
+          bodyInput.maxLength = 2000;
+          bodyInput.required = true;
+          bodyInput.placeholder = "댓글을 남겨 주세요.";
+          bodyInput.setAttribute("aria-label", "댓글 내용");
+          form.appendChild(bodyInput);
+
+          var submit = newsTextElement("button", "primary", "댓글 등록");
+          submit.type = "submit";
+          form.appendChild(submit);
+          section.appendChild(form);
+          article.appendChild(section);
+        }
+
+        document.getElementById("viewNewsFromLogin").addEventListener("click", showNewsPage);
+        document.getElementById("viewNewsFromApp").addEventListener("click", showNewsPage);
+        document.getElementById("backToRankings").addEventListener("click", showRankingsPage);
+
+        var newsList = document.getElementById("newsList");
+        newsList.addEventListener("click", function (event) {
+          var button = event.target.closest("[data-news-comments]");
+          if (!button) return;
+          var newsId = button.getAttribute("data-news-comments");
+          if (String(state.activeNewsId) === String(newsId)) {
+            state.activeNewsId = null;
+            state.newsComments = [];
+            state.newsCommentsError = null;
+            renderNewsBoard();
+            return;
+          }
+          state.activeNewsId = newsId;
+          loadNewsComments(newsId);
+        });
+
+        newsList.addEventListener("submit", async function (event) {
+          var form = event.target;
+          if (!form.matches("[data-news-comment-form]")) return;
+          event.preventDefault();
+          if (!(await ensureCurrentVersion())) return;
+
+          var newsId = form.getAttribute("data-news-comment-form");
+          var name = String(new FormData(form).get("display_name") || "").trim().slice(0, 80);
+          var body = String(new FormData(form).get("body") || "").trim();
+          if (!body || body.length > 2000) {
+            toast("댓글은 1자 이상 2,000자 이하로 입력해 주세요.");
+            return;
+          }
+
+          var submit = form.querySelector('button[type="submit"]');
+          submit.disabled = true;
+          try {
+            var result = await sb.from("news_comments").insert({
+              news_id: newsId,
+              display_name: name || "익명",
+              body: body
+            });
+            if (result.error) {
+              toast("댓글을 등록하지 못했습니다.");
+              submit.disabled = false;
+              return;
+            }
+            state.activeNewsId = newsId;
+            await loadNewsComments(newsId);
+            toast("댓글을 등록했습니다.");
+          } catch (error) {
+            toast("댓글을 등록하지 못했습니다.");
+            submit.disabled = false;
+          }
         });
 
         async function init() {
