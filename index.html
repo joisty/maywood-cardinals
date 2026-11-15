@@ -431,6 +431,7 @@
         .toast { transition: none; }
       }
       footer.foot { margin-top: 26px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+      .visit-counter { color: var(--ink-soft); font-size: 12px; font-weight: 600; margin: 8px 0 12px; }
       .news-page.hidden { display: none; }
       .news-wrap { max-width: 900px; }
       .news-masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 0 20px; }
@@ -478,6 +479,7 @@
           <div class="auth-error" id="authError" role="alert"></div>
         </form>
         <button type="button" class="ghost news-login-link" id="viewNewsFromLogin">Read the news board</button>
+        <div class="visit-counter" data-visit-counter>오늘 방문 집계 중…</div>
       </div>
     </div>
 
@@ -490,6 +492,7 @@
           </div>
           <h1>Tennis Club ELO Tracker</h1>
           <p class="sub">Doubles ladder for the club — record a result and every player's rating updates on the spot.</p>
+          <div class="visit-counter" data-visit-counter>오늘 방문 집계 중…</div>
           <div class="stat-strip">
             <div class="stat"><b id="statPlayers">0</b><span>Players</span></div>
             <div class="stat"><b id="statMatches">0</b><span>Matches</span></div>
@@ -586,6 +589,7 @@
           </div>
           <button type="button" class="ghost" id="backToRankings">Rankings</button>
         </header>
+        <div class="visit-counter" data-visit-counter>오늘 방문 집계 중…</div>
         <div id="newsStatus" class="news-status" role="status"></div>
         <div id="newsList"></div>
       </div>
@@ -615,7 +619,7 @@
         var seq = 0;
 
         // Bump this value and version.json together for every published page update.
-        var APP_VERSION = "2026-11-14.2";
+        var APP_VERSION = "2026-11-15.1";
         var versionGate = document.getElementById("versionGate");
         var versionGateMessage = document.getElementById("versionGateMessage");
         var versionCheckPromise = null;
@@ -687,6 +691,24 @@
         var SUPABASE_URL = "https://zjqtjcqbktseaudpuvzw.supabase.co";
         var SUPABASE_ANON_KEY = "sb_publishable_ZmpDoKrmI4JAVS8T6p6q4w_DJeEFTOD";
         var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function recordPageLoad() {
+          if (!(await ensureCurrentVersion())) return;
+          var counters = document.querySelectorAll("[data-visit-counter]");
+          try {
+            var result = await sb.rpc("record_site_visit");
+            if (result.error || !result.data) throw new Error("Counter unavailable");
+            var today = Number(result.data.today_count);
+            var total = Number(result.data.total_count);
+            var label = "오늘 방문 " + today.toLocaleString("ko-KR") +
+              " · 누적 " + total.toLocaleString("ko-KR");
+            counters.forEach(function (counter) { counter.textContent = label; });
+          } catch (error) {
+            counters.forEach(function (counter) { counter.textContent = "방문 수를 불러오지 못했습니다."; });
+          }
+        }
+
+        recordPageLoad();
 
         var MANAGER_EMAIL = "joisty";
         var isManager = false;
