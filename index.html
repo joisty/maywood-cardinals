@@ -486,7 +486,7 @@
         <div class="grid">
           <section class="panel" aria-labelledby="standingsH">
             <h2 id="standingsH">Standings</h2>
-            <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
+            <p class="hint">Each season starts at 1500. Standings and player records use matches from the selected season.</p>
             <div class="season-picker">
               <label for="seasonSelect">Season</label>
               <select id="seasonSelect" aria-label="Select season">
@@ -981,9 +981,9 @@
 
         function renderHeader(c) {
           document.getElementById("statPlayers").textContent = state.players.length;
-          document.getElementById("statMatches").textContent = state.matches.length;
+          document.getElementById("statMatches").textContent = c.ordered.length;
           var official = 0;
-          state.matches.forEach(function (m) { if (m.official) official++; });
+          c.ordered.forEach(function (m) { if (m.official) official++; });
           document.getElementById("statOfficial").textContent = official;
 
           var sorted = state.players.slice().sort(function (x, y) {
