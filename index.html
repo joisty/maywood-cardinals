@@ -238,33 +238,15 @@
         section.panel { padding: 16px 14px; }
       }
 
-      .rating-toggle {
+      .season-picker {
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        justify-content: flex-end;
-        margin-top: 12px;
-      }
-      .toggle-option {
-        display: inline-flex;
         align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--ink-soft);
-        background: var(--surface-2);
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 7px 11px;
-        cursor: pointer;
+        justify-content: flex-end;
+        gap: 10px;
+        margin: 12px 0;
       }
-      .toggle-option input { accent-color: var(--court); }
-      .toggle-note {
-        margin-top: 8px;
-        font-size: 12px;
-        color: var(--ink-soft);
-        text-align: right;
-      }
+      .season-picker label { color: var(--ink-soft); font-size: 13px; font-weight: 700; }
+      .season-picker select { width: auto; min-width: 180px; }
 
       /* ---------- Forms ---------- */
       label.field-label {
@@ -504,13 +486,14 @@
         <div class="grid">
           <section class="panel" aria-labelledby="standingsH">
             <h2 id="standingsH">Standings</h2>
-            <p class="hint">Everyone starts at 1500. Ratings use team-average ELO (K = 32; official competition matches count double, K = 64), recomputed from the full match log.</p>
-            <div id="standingsBody"></div>
-            <div class="rating-toggle" role="radiogroup" aria-label="Rating display selection">
-              <label class="toggle-option"><input type="radio" name="ratingMode" value="ratings" checked /> Ratings</label>
-              <label class="toggle-option"><input type="radio" name="ratingMode" value="raw" /> Raw ELO</label>
+            <p class="hint">Returning players start each season with a soft reset of their previous season rating (bounded between 1450 and 1550); new players start at 1500.</p>
+            <div class="season-picker">
+              <label for="seasonSelect">Season</label>
+              <select id="seasonSelect" aria-label="Select season">
+                <option value="2026-h2">2026년 하반기</option>
+              </select>
             </div>
-            <div class="toggle-note">Temporary display: Ratings = Raw ELO + (2 × played matches).</div>
+            <div id="standingsBody"></div>
           </section>
 
           <section class="panel" aria-labelledby="recordH">
@@ -603,7 +586,7 @@
 
         var START_RATING = 1500;
         var K = 32;
-        var ratingMode = "ratings";
+        var selectedSeasonId = "2026-h2";
         var activePage = "rankings";
 
         var state = {
@@ -619,7 +602,7 @@
         var seq = 0;
 
         // Bump this value and version.json together for every published page update.
-        var APP_VERSION = "2026-11-15.1";
+        var APP_VERSION = "2026-11-21.3";
         var versionGate = document.getElementById("versionGate");
         var versionGateMessage = document.getElementById("versionGateMessage");
         var versionCheckPromise = null;
@@ -886,13 +869,47 @@
           return "Draw";
         }
 
+        var seasons = {
+          "2026-h1": { start: "2026-01-01", end: "2026-07-01", previous: null },
+          "2026-h2": { start: "2026-07-01", end: "2027-01-01", previous: "2026-h1" }
+        };
+
+        function seasonMatches(seasonId) {
+          var season = seasons[seasonId];
+          if (!season) return [];
+          return state.matches.filter(function (match) {
+            return match.date >= season.start && match.date < season.end;
+          });
+        }
+
+        function seasonStartingRatings(seasonId) {
+          var season = seasons[seasonId];
+          var startingRatings = {};
+          if (!season || !season.previous || !seasons[season.previous]) {
+            state.players.forEach(function (player) { startingRatings[player.id] = START_RATING; });
+            return startingRatings;
+          }
+
+          var previousRatings = computeSeason(season.previous, seasonStartingRatings(season.previous)).ratings;
+          state.players.forEach(function (player) {
+            var previousRating = previousRatings[player.id] || START_RATING;
+            startingRatings[player.id] = 1500 + 50 * Math.tanh((previousRating - 1500) / 200);
+          });
+          return startingRatings;
+        }
+
         function compute() {
+          var seasonId = seasons[selectedSeasonId] ? selectedSeasonId : "2026-h2";
+          return computeSeason(seasonId, seasonStartingRatings(seasonId));
+        }
+
+        function computeSeason(seasonId, startingRatings) {
           var ratings = {}, stats = {};
           state.players.forEach(function (p) {
-            ratings[p.id] = START_RATING;
+            ratings[p.id] = startingRatings[p.id] || START_RATING;
             stats[p.id] = { played: 0, wins: 0, losses: 0, form: [], streakType: null, streakCount: 0, gamesWon: 0, gamesLost: 0 };
           });
-          var ordered = state.matches.slice().sort(function (x, y) {
+          var ordered = seasonMatches(seasonId).slice().sort(function (x, y) {
             if (x.date !== y.date) return x.date < y.date ? -1 : 1;
             return x.seq - y.seq;
           });
@@ -943,8 +960,12 @@
           return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
         }
 
-        function scoreString(m) {
-          return m.sets.map(function (s) { return s[0] + "–" + s[1]; }).join(", ");
+        function scoreString(m, winner) {
+          return m.sets.map(function (s) {
+            var scoreA = winner === "B" ? s[1] : s[0];
+            var scoreB = winner === "B" ? s[0] : s[1];
+            return scoreA + "–" + scoreB;
+          }).join(", ");
         }
 
         function todayIso() {
@@ -959,7 +980,7 @@
         function displayRating(c, playerId) {
           var raw = c.ratings[playerId];
           var played = c.stats[playerId].played || 0;
-          return ratingMode === "ratings" ? raw + (2 * played) : raw;
+          return raw + (2 * played);
         }
 
         var toastTimer = null;
@@ -983,9 +1004,9 @@
 
         function renderHeader(c) {
           document.getElementById("statPlayers").textContent = state.players.length;
-          document.getElementById("statMatches").textContent = state.matches.length;
+          document.getElementById("statMatches").textContent = c.ordered.length;
           var official = 0;
-          state.matches.forEach(function (m) { if (m.official) official++; });
+          c.ordered.forEach(function (m) { if (m.official) official++; });
           document.getElementById("statOfficial").textContent = official;
 
           var sorted = state.players.slice().sort(function (x, y) {
@@ -1017,7 +1038,7 @@
             if (c.stats[y.id].wins !== c.stats[x.id].wins) return c.stats[y.id].wins - c.stats[x.id].wins;
             return x.name.localeCompare(y.name);
           });
-          var headerLabel = ratingMode === "ratings" ? "Rating" : "ELO";
+          var headerLabel = "Rating";
           var html = '<div class="table-scroll"><table class="standings"><thead><tr>' +
             "<th>#</th><th>Player</th><th class=\"num\">" + headerLabel + "</th><th class=\"num col-hide-sm\">Played</th>" +
             "<th class=\"num\">W</th><th class=\"num\">L</th><th class=\"num col-hide-sm\">Win %</th>" +
@@ -1090,7 +1111,7 @@
             html += "<li>" +
               '<span class="log-date">' + fmtDate(m.date) + "</span>" +
               '<span class="log-main">' + teamsHtml + "</span>" +
-              '<span class="log-score">' + scoreString(m) + "</span>" +
+              '<span class="log-score">' + scoreString(m, winner) + "</span>" +
               (m.official ? '<span class="tag-official">Official · 2×</span>' : "") +
               deltaHtml +
               deleteHtml +
@@ -1165,12 +1186,9 @@
           el.classList.remove("show");
         }
 
-        document.querySelectorAll('input[name="ratingMode"]').forEach(function (input) {
-          input.addEventListener("change", function () {
-            if (!this.checked) return;
-            ratingMode = this.value === "raw" ? "raw" : "ratings";
-            render();
-          });
+        document.getElementById("seasonSelect").addEventListener("change", function () {
+          selectedSeasonId = seasons[this.value] ? this.value : "2026-h2";
+          render();
         });
 
         document.getElementById("predictBtn").addEventListener("click", function () {
@@ -1192,8 +1210,18 @@
           var rb = (c.ratings[b1] + c.ratings[b2]) / 2;
           var ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
           var diff = Math.abs(ra - rb);
-          var suggestedA = Math.round(5 + (diff / 80));
-          var suggestedB = 10 - suggestedA;
+          var margin = Math.min(5, Math.round(diff / 80));
+          var suggestedA, suggestedB;
+          if (margin === 0) {
+            suggestedA = 5;
+            suggestedB = 5;
+          } else if (ra >= rb) {
+            suggestedA = 6;
+            suggestedB = 5 - margin;
+          } else {
+            suggestedA = 5 - margin;
+            suggestedB = 6;
+          }
           document.getElementById("set1A").value = suggestedA;
           document.getElementById("set1B").value = suggestedB;
           toast("Prediction: " + playerById(a1).name + " & " + playerById(a2).name + " vs " + playerById(b1).name + " & " + playerById(b2).name + " — expected win probability: " + (ea * 100).toFixed(0) + "%");
