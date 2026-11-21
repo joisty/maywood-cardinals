@@ -486,7 +486,7 @@
         <div class="grid">
           <section class="panel" aria-labelledby="standingsH">
             <h2 id="standingsH">Standings</h2>
-            <p class="hint">Each season starts at 1500. Standings and player records use matches from the selected season.</p>
+            <p class="hint">Returning players start each season with a soft reset of their previous season rating (bounded between 1450 and 1550); new players start at 1500.</p>
             <div class="season-picker">
               <label for="seasonSelect">Season</label>
               <select id="seasonSelect" aria-label="Select season">
@@ -602,7 +602,7 @@
         var seq = 0;
 
         // Bump this value and version.json together for every published page update.
-        var APP_VERSION = "2026-11-21.2";
+        var APP_VERSION = "2026-11-21.3";
         var versionGate = document.getElementById("versionGate");
         var versionGateMessage = document.getElementById("versionGateMessage");
         var versionCheckPromise = null;
@@ -870,23 +870,46 @@
         }
 
         var seasons = {
-          "2026-h2": { start: "2026-07-01", end: "2027-01-01" }
+          "2026-h1": { start: "2026-01-01", end: "2026-07-01", previous: null },
+          "2026-h2": { start: "2026-07-01", end: "2027-01-01", previous: "2026-h1" }
         };
 
-        function selectedSeasonMatches() {
-          var season = seasons[selectedSeasonId] || seasons["2026-h2"];
+        function seasonMatches(seasonId) {
+          var season = seasons[seasonId];
+          if (!season) return [];
           return state.matches.filter(function (match) {
             return match.date >= season.start && match.date < season.end;
           });
         }
 
+        function seasonStartingRatings(seasonId) {
+          var season = seasons[seasonId];
+          var startingRatings = {};
+          if (!season || !season.previous || !seasons[season.previous]) {
+            state.players.forEach(function (player) { startingRatings[player.id] = START_RATING; });
+            return startingRatings;
+          }
+
+          var previousRatings = computeSeason(season.previous, seasonStartingRatings(season.previous)).ratings;
+          state.players.forEach(function (player) {
+            var previousRating = previousRatings[player.id] || START_RATING;
+            startingRatings[player.id] = 1500 + 50 * Math.tanh((previousRating - 1500) / 200);
+          });
+          return startingRatings;
+        }
+
         function compute() {
+          var seasonId = seasons[selectedSeasonId] ? selectedSeasonId : "2026-h2";
+          return computeSeason(seasonId, seasonStartingRatings(seasonId));
+        }
+
+        function computeSeason(seasonId, startingRatings) {
           var ratings = {}, stats = {};
           state.players.forEach(function (p) {
-            ratings[p.id] = START_RATING;
+            ratings[p.id] = startingRatings[p.id] || START_RATING;
             stats[p.id] = { played: 0, wins: 0, losses: 0, form: [], streakType: null, streakCount: 0, gamesWon: 0, gamesLost: 0 };
           });
-          var ordered = selectedSeasonMatches().slice().sort(function (x, y) {
+          var ordered = seasonMatches(seasonId).slice().sort(function (x, y) {
             if (x.date !== y.date) return x.date < y.date ? -1 : 1;
             return x.seq - y.seq;
           });
