@@ -619,7 +619,7 @@
         var seq = 0;
 
         // Bump this value and version.json together for every published page update.
-        var APP_VERSION = "2026-11-15.1";
+        var APP_VERSION = "2026-11-21.1";
         var versionGate = document.getElementById("versionGate");
         var versionGateMessage = document.getElementById("versionGateMessage");
         var versionCheckPromise = null;
@@ -943,8 +943,12 @@
           return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
         }
 
-        function scoreString(m) {
-          return m.sets.map(function (s) { return s[0] + "–" + s[1]; }).join(", ");
+        function scoreString(m, winner) {
+          return m.sets.map(function (s) {
+            var scoreA = winner === "B" ? s[1] : s[0];
+            var scoreB = winner === "B" ? s[0] : s[1];
+            return scoreA + "–" + scoreB;
+          }).join(", ");
         }
 
         function todayIso() {
@@ -1090,7 +1094,7 @@
             html += "<li>" +
               '<span class="log-date">' + fmtDate(m.date) + "</span>" +
               '<span class="log-main">' + teamsHtml + "</span>" +
-              '<span class="log-score">' + scoreString(m) + "</span>" +
+              '<span class="log-score">' + scoreString(m, winner) + "</span>" +
               (m.official ? '<span class="tag-official">Official · 2×</span>' : "") +
               deltaHtml +
               deleteHtml +
@@ -1192,8 +1196,18 @@
           var rb = (c.ratings[b1] + c.ratings[b2]) / 2;
           var ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
           var diff = Math.abs(ra - rb);
-          var suggestedA = Math.round(5 + (diff / 80));
-          var suggestedB = 10 - suggestedA;
+          var margin = Math.min(5, Math.round(diff / 80));
+          var suggestedA, suggestedB;
+          if (margin === 0) {
+            suggestedA = 5;
+            suggestedB = 5;
+          } else if (ra >= rb) {
+            suggestedA = 6;
+            suggestedB = 5 - margin;
+          } else {
+            suggestedA = 5 - margin;
+            suggestedB = 6;
+          }
           document.getElementById("set1A").value = suggestedA;
           document.getElementById("set1B").value = suggestedB;
           toast("Prediction: " + playerById(a1).name + " & " + playerById(a2).name + " vs " + playerById(b1).name + " & " + playerById(b2).name + " — expected win probability: " + (ea * 100).toFixed(0) + "%");
